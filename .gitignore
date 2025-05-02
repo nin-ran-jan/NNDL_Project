@@ -1,2 +1,7 @@
 nexar-collision-prediction/
+
 **/*.zip
+**/*.npy
+**/__pycache__
+**/*.pyc
+**/*.pkl
