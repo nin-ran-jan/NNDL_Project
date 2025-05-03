@@ -3,11 +3,12 @@ import numpy as np
 from torchvision import transforms
 from datasets.video_dataset import FrameCollector
 from models.ResNet_feature_extract import extract_features_batched
+from datetime import datetime
 
 if __name__ == "__main__":
     df = pd.read_csv("nexar-collision-prediction/train.csv")
     df["id"] = df["id"].apply(lambda x: str(x).zfill(5))
-    df_subset = df.head(8)
+    df_subset = df.head(100)
 
     TRAIN_VIDEO_DIR = "nexar-collision-prediction/train"
     FPS_TARGET = 2
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     ])
 
     all_features = extract_features_batched(
-        all_frames, transform=resnet_transform, batch_size=32
+        all_frames, transform=resnet_transform, batch_size=8
     )
 
     features_per_video = []
@@ -39,6 +40,9 @@ if __name__ == "__main__":
         features_per_video.append(all_features[i:i + n])
         i += n
 
-    np.save("ResNet_Features/train_features.npy", np.array(features_per_video, dtype=object))
-    np.save("ResNet_Features/train_labels.npy", np.array(labels_per_video, dtype=object))
+    now = datetime.now()
+    timestamp_str = now.strftime("%d%m%H%M%S")
+
+    np.save(f"ResNet_Features/train_features_{timestamp_str}.npy", np.array(features_per_video, dtype=object))
+    np.save(f"ResNet_Features/train_labels_{timestamp_str}.npy", np.array(labels_per_video, dtype=object))
     print("Saved per-video features and labels to ResNet_Features/")

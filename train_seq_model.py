@@ -1,28 +1,34 @@
+import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
+import torch.nn as nn
 import numpy as np
 
 from datasets.feature_dataset import AccidentFeatureDataset
+from models.ResNetLSTM import ResNetLSTM
 
-features = np.load("train_features.npy")
-labels = np.load("train_labels.npy")
+TIMESTAMP = "0305011141"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+features = np.load(f"ResNet_Features/train_features_{TIMESTAMP}.npy", allow_pickle=True)
+labels = np.load(f"ResNet_Features/train_labels_{TIMESTAMP}.npy", allow_pickle=True)
 
 dataset = AccidentFeatureDataset(features, labels)
-dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
 
 model = ResNetLSTM().to(device)
-criterion = nn.BCELoss()  # Because labels are soft (0 to 1)
+criterion = nn.BCELoss()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-EPOCHS = 10
+EPOCHS = 100
 for epoch in range(EPOCHS):
     model.train()
     running_loss = 0.0
     for sequences, label_seqs in dataloader:
-        sequences = sequences.to(device)  # (B, 5, 512)
-        label_seqs = label_seqs.to(device)  # (B, 5)
+        sequences = sequences.to(device)
+        label_seqs = label_seqs.to(device)
 
-        outputs = model(sequences)  # (B, 5)
+        outputs = model(sequences)
         loss = criterion(outputs, label_seqs)
 
         optimizer.zero_grad()
@@ -32,3 +38,6 @@ for epoch in range(EPOCHS):
     
     avg_loss = running_loss / len(dataloader)
     print(f"Epoch {epoch+1}/{EPOCHS} - Loss: {avg_loss:.4f}")
+
+torch.save(model.state_dict(), f"checkpoints/ResNetLSTM_{TIMESTAMP}.pth")
+print("Training complete. Model saved.")

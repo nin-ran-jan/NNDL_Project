@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset
 import torch
+import numpy as np
 
 class AccidentFeatureDataset(Dataset):
     def __init__(self, features, labels):
@@ -10,5 +11,5 @@ class AccidentFeatureDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.features[idx], dtype=torch.float32), \
-               torch.tensor(self.labels[idx], dtype=torch.float32)
+        return torch.tensor(np.array(self.features[idx], dtype=np.float32), dtype=torch.float32), \
+               torch.tensor(np.array(self.labels[idx], dtype=np.float32), dtype=torch.float32)

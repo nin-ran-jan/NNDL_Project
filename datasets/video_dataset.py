@@ -17,10 +17,11 @@ def compute_frame_label(t, alert_time, sigma_before=2.0, sigma_after=0.5, atol=0
 
 
 class FrameCollector:
-    def __init__(self, df, video_dir, fps_target=5):
+    def __init__(self, df, video_dir, fps_target=5, sequence_length=20):
         self.df = df
         self.video_dir = video_dir
         self.fps_target = fps_target
+        self.sequence_length = sequence_length
         self.frames_per_video = []
         self.labels_per_video = []
         self.metadata = []  # (video_id, timestamp, event_time, alert_time)
@@ -38,7 +39,6 @@ class FrameCollector:
             fps = cap.get(cv2.CAP_PROP_FPS) or 30
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = total_frames / fps
-            frame_interval = int(fps / self.fps_target)
 
             event_time = row["time_of_event"]
             alert_time = row["time_of_alert"]
@@ -58,36 +58,36 @@ class FrameCollector:
 
             start_frame = int(window_start * fps)
             end_frame = int(window_end * fps)
-            sampled_indices = list(range(start_frame, end_frame, frame_interval))
 
-            if len(sampled_indices) == 0:
-                cap.release()
-                continue
+            sampled_indices = np.linspace(
+                start_frame, end_frame - 1, self.sequence_length, dtype=int
+            )
 
             video_frames = []
             video_labels = []
 
             for idx in sampled_indices:
                 if idx < 0 or idx >= total_frames:
-                    continue
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-                if not ret:
-                    continue
-                t = idx / fps
-                label = compute_frame_label(t, alert_time, atol=atol) if is_positive else 0.0
+                    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+                    label = 0.0
+                else:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+                    if not ret:
+                        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+                    t = idx / fps
+                    label = compute_frame_label(t, alert_time, atol=atol) if is_positive else 0.0
+
                 video_frames.append(frame)
                 video_labels.append(label)
-                self.metadata.append((video_id, t, event_time, alert_time))
+                self.metadata.append((video_id, idx / fps, event_time, alert_time))
 
-            if video_frames:
-                self.frames_per_video.append(video_frames)
-                self.labels_per_video.append(video_labels)
+            self.frames_per_video.append(video_frames)
+            self.labels_per_video.append(video_labels)
 
             cap.release()
 
         return self.frames_per_video, self.metadata, self.labels_per_video
-
 
 class FrameBatchDataset(torch.utils.data.Dataset):
     def __init__(self, frames, transform):

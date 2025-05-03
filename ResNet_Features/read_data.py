@@ -1,7 +1,9 @@
 import numpy as np
 
-features = np.load("ResNet_Features/train_features.npy", allow_pickle=True)
-labels = np.load("ResNet_Features/train_labels.npy", allow_pickle=True)
+TIMESTAMP = "0305011141"
+
+features = np.load(f"ResNet_Features/train_features_{TIMESTAMP}.npy", allow_pickle=True)
+labels = np.load(f"ResNet_Features/train_labels_{TIMESTAMP}.npy", allow_pickle=True)
 
 print("Features shape:", features.shape)  
 print("Labels shape:", labels.shape)
