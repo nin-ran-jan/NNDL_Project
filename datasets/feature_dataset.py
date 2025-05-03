@@ -11,5 +11,9 @@ class AccidentFeatureDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return torch.tensor(np.array(self.features[idx], dtype=np.float32), dtype=torch.float32), \
-               torch.tensor(np.array(self.labels[idx], dtype=np.float32), dtype=torch.float32)
+        features = np.array(self.features[idx], dtype=np.float32)
+        labels = np.array(self.labels[idx], dtype=np.float32)
+        binary_label = torch.tensor(1.0 if np.max(self.labels[idx]) > 0.5 else 0.0, dtype=torch.float32)
+        return torch.tensor(features, dtype=torch.float32), \
+               torch.tensor(labels, dtype=torch.float32), \
+               binary_label
