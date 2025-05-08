@@ -1,0 +1,5 @@
+pandas
+opencv-python
+torch
+torchvision
+tqdm

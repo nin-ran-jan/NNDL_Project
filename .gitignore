@@ -7,3 +7,4 @@ nexar-collision-prediction/
 **/*.pkl
 **/*.pth
 **/*.csv
+.venv/
