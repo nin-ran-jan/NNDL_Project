@@ -69,7 +69,7 @@ def load_all_features_and_labels(feature_dir_path):
     # Discover batch indices based on feature files
     try:
         batch_indices = sorted(list(set(
-            int(f.split("_")[4])  # Extracts 'X' from 'train_features_saving_batch_X'
+            f.split("_")[4].split(".")[0]  # Extracts 'X' from 'train_features_saving_batch_X.npy'
             for f in os.listdir(feature_dir_path)
             if f.startswith("train_features_saving_batch") and f.endswith(".npy")
         )))
