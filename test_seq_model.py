@@ -12,13 +12,18 @@ MODEL_TIMESTAMP = "0305080728"
 BATCH_SIZE = 32
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-feature_dir = f"ResNet_Features/test_batch_{TEST_TIMESTAMP}"
-checkpoint_path = f"checkpoints/ResNetLSTM_best_{MODEL_TIMESTAMP}.pth"
+feature_dir = f"CLIP_ViT_Features_Test_clip-vit-large-patch14/run_250509_185359"
+checkpoint_path = f"checkpoints/ViTLSTM_best_{MODEL_TIMESTAMP}.pth"
 
-batch_indices = sorted(set(
-    f.split("_")[2][5:] for f in os.listdir(feature_dir)
-    if f.startswith("test_features_batch") and f.endswith(".npy")
-))
+# batch_indices = sorted(set(
+#     f.split("_")[2][5:] for f in os.listdir(feature_dir)
+#     if f.startswith("test_features_batch") and f.endswith(".npy")
+# ))
+batch_indices = sorted(list(set(
+    f.split("_")[4].split(".")[0] 
+    for f in os.listdir(feature_dir)
+    if f.startswith("train_features_saving_batch") and f.endswith(".npy")
+)))
 
 model = ResNetLSTM(dropout=0).to(device)
 model.load_state_dict(torch.load(checkpoint_path, map_location=device))
@@ -28,11 +33,17 @@ all_scores = []
 all_ids = []
 
 for batch_idx in batch_indices:
-    feature_path = os.path.join(feature_dir, f"test_features_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
-    ids_path = os.path.join(feature_dir, f"test_ids_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
+    # feature_path = os.path.join(feature_dir, f"test_features_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
+    # ids_path = os.path.join(feature_dir, f"test_ids_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
 
-    test_features = np.load(feature_path, allow_pickle=True)
-    test_ids = np.load(ids_path, allow_pickle=True)
+    feature_file = f"train_features_saving_batch_{batch_idx}.npy"
+    test_id_file = f"test_ids_saving_batch_{batch_idx}.npy"
+
+    test_features = np.load(os.path.join(feature_dir, feature_file), allow_pickle=True)
+    test_ids = np.load(os.path.join(feature_dir, test_id_file), allow_pickle=True)
+
+    # test_features = np.load(feature_path, allow_pickle=True)
+    # test_ids = np.load(ids_path, allow_pickle=True)
 
     dummy_frame_labels = np.zeros((len(test_features), test_features[0].shape[0], 1), dtype=np.float32)
     test_dataset = AccidentFeatureDataset(test_features, dummy_frame_labels)
