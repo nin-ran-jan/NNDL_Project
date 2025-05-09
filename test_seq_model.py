@@ -36,7 +36,7 @@ for batch_idx in batch_indices:
     # feature_path = os.path.join(feature_dir, f"test_features_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
     # ids_path = os.path.join(feature_dir, f"test_ids_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
 
-    feature_file = f"train_features_saving_batch_{batch_idx}.npy"
+    feature_file = f"test_features_saving_batch_{batch_idx}.npy"
     test_id_file = f"test_ids_saving_batch_{batch_idx}.npy"
 
     test_features = np.load(os.path.join(feature_dir, feature_file), allow_pickle=True)
