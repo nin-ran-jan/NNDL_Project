@@ -157,7 +157,7 @@ print(f"Attempting to load data from: {full_feature_dir}")
 # Load all data
 # Pass DATA_TIMESTAMP to match file names like "train_features_batch0_DATA_TIMESTAMP.npy"
 # If your files don't have this timestamp suffix, pass an empty string or modify load_all_features_and_labels
-all_train_features, all_train_labels = load_all_features_and_labels(full_feature_dir, DATA_TIMESTAMP)
+all_train_features, all_train_labels = load_all_features_and_labels(full_feature_dir)
 
 if all_train_features is None or all_train_labels is None:
     print("Exiting due to data loading issues.")
