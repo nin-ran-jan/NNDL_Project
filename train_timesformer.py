@@ -46,7 +46,7 @@ TARGET_PROCESSING_FPS = 3  # Your internal FPS for windowing logic & label align
 SEQUENCE_WINDOW_SECONDS = 10.0 # Duration of the video segment from which the clip is sampled
 
 # Training Hyperparameters
-BATCH_SIZE = 8             # Adjust based on GPU memory. Start small (4 or 8).
+BATCH_SIZE = 4             # Adjust based on GPU memory. Start small (4 or 8).
 EPOCHS = 30
 LEARNING_RATE = 3e-5       # Common starting LR for fine-tuning HF transformer models
 WEIGHT_DECAY = 1e-4
