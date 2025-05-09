@@ -22,7 +22,7 @@ checkpoint_path = f"checkpoints/ViTLSTM_best_{MODEL_TIMESTAMP}.pth"
 batch_indices = sorted(list(set(
     f.split("_")[4].split(".")[0] 
     for f in os.listdir(feature_dir)
-    if f.startswith("train_features_saving_batch") and f.endswith(".npy")
+    if f.startswith("test_features_saving_batch") and f.endswith(".npy")
 )))
 
 model = ResNetLSTM(input_dim=768, dropout=0).to(device)
@@ -35,7 +35,6 @@ all_ids = []
 for batch_idx in batch_indices:
     # feature_path = os.path.join(feature_dir, f"test_features_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
     # ids_path = os.path.join(feature_dir, f"test_ids_batch{batch_idx}_{TEST_TIMESTAMP}.npy")
-
     feature_file = f"test_features_saving_batch_{batch_idx}.npy"
     test_id_file = f"test_ids_saving_batch_{batch_idx}.npy"
 
