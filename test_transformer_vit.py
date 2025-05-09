@@ -214,7 +214,7 @@ model = ViTTransformer(
     nhead=N_HEADS,
     num_encoder_layers=NUM_ENCODER_LAYERS,
     dim_feedforward=DIM_FEEDFORWARD,
-    dropout=MODEL_DROPOUT 
+    dropout=DROPOUT
 ).to(device)
 
 try:
