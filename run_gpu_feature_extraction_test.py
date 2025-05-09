@@ -89,7 +89,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"ViT model compilation failed (this is optional): {e}. Using uncompiled model.")
     
-    clip_processor = CLIPProcessor.from_pretrained(VIT_MODEL_NAME, use_fast=True)
+    clip_processor = CLIPProcessor.from_pretrained(VIT_MODEL_NAME, use_fast=False)
     print("Model and processor initialized.")
 
     # --- Initialize Dataset and DataLoader ---
