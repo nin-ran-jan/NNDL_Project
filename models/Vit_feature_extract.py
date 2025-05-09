@@ -38,7 +38,7 @@ def extract_features_batched_hf(all_numpy_frames,
                                          shuffle=False,
                                          num_workers=os.cpu_count() or 4, # Can be tuned
                                          pin_memory=True if device.type == 'cuda' else False,
-                                         persistent_workers=True if (os.cpu_count() or 2) > 0 else False,
+                                         persistent_workers=False,
                                          collate_fn=pil_list_collate_fn
                                          )
 
