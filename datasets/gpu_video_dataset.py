@@ -133,6 +133,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             )
 
             num_read_frames = vframes_tchw_uint8.shape[0]
+
+            # debug statements
+            print(f"  tv_io.read_video returned {num_read_frames} frames. Shape: {vframes_tchw_uint8.shape}. Info: {info}")
+
             final_frames_processed_tensor = default_frames_tensor # Initialize with placeholder
             labels_list = [0.0] * self.sequence_length
 
@@ -144,6 +148,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                 orig_end_frame_idx = min(int(window_end_time_sec * fps), total_frames_cv -1)
                 if orig_start_frame_idx > orig_end_frame_idx: orig_start_frame_idx = orig_end_frame_idx
                 original_sampled_indices_for_label = np.linspace(orig_start_frame_idx, orig_end_frame_idx, self.sequence_length, dtype=int, endpoint=True)
+
+                # debug statements
+                print(f"  Original Sampled Indices (for label calc): {original_sampled_indices_for_label}")
+                print(f"  Calculated atol_val for isclose: {self.atol_val}")
 
                 for i in range(self.sequence_length):
                     t_for_label = original_sampled_indices_for_label[i] / fps
@@ -166,6 +174,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                     final_frames_processed_tensor = subsampled_frames_tchw_uint8 # Pass uint8 TCHW as is
                 else: # Should not happen if one of the above is true
                     final_frames_processed_tensor = subsampled_frames_tchw_uint8
+                print(f"  Final labels_list for {video_id} (inside num_read_frames > 0): {[f'{l:.3f}' for l in labels_list]}")
+            else:
+                print(f"  num_read_frames was NOT > 0 for {video_id}. Labels will be default zeros.")
+            
 
 
             labels_tensor = torch.tensor(labels_list, dtype=torch.float32)
@@ -173,7 +185,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             return video_id, final_frames_processed_tensor.cpu(), labels_tensor.cpu()
 
         except Exception as e:
-            # print(f"Error processing video {video_id} ({video_path}): {e}. Returning placeholders.") # Can be verbose
+            print(f"Error processing video {video_id} ({video_path}): {e}. Returning placeholders.") # Can be verbose
             return video_id, default_frames_tensor.cpu(), default_labels_tensor.cpu()
 
 def collate_fn_videos(batch): # Kept for B > 1, but current main script uses B=1
