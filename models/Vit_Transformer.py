@@ -1,0 +1,122 @@
+import torch
+import torch.nn as nn
+import math
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=30):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        # match sequence length
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
+
+class ViTTransformer(nn.Module):
+
+    def __init__(self, feature_dim, model_dim, nhead, num_encoder_layers, dim_feedforward, dropout=0.1):
+        super(ViTTransformer, self).__init__()
+        self.model_type = 'Transformer'
+        self.feature_dim = feature_dim
+        self.model_dim = model_dim
+
+        # if feature_dim != model_dim
+        self.input_projection = nn.Linear(feature_dim, model_dim)
+
+        self.pos_encoder = PositionalEncoding(model_dim, dropout)
+        
+        encoder_layer_params = {
+            'd_model': model_dim,
+            'nhead': nhead,
+            'dim_feedforward': dim_feedforward,
+            'dropout': dropout,
+            'batch_first': True  # input format is (batch, seq, feature)
+        }
+        encoder_layers = nn.TransformerEncoderLayer(**encoder_layer_params, activation='relu')
+
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_encoder_layers)
+
+        # For Binary Loss
+        self.seq_fc = nn.Linear(model_dim, 1)
+        self.seq_sigmoid = nn.Sigmoid()
+
+        # For Frame Loss
+        self.frame_fc = nn.Linear(model_dim, 1)
+        self.frame_sigmoid = nn.Sigmoid()
+
+        self.init_weights()
+
+    def init_weights(self):
+        """
+        Initializes weights of the linear layers.
+        """
+        initrange = 0.1
+        # model dim projection
+        if hasattr(self.input_projection, 'weight'):
+            self.input_projection.weight.data.uniform_(-initrange, initrange)
+        if hasattr(self.input_projection, 'bias') and self.input_projection.bias is not None:
+            self.input_projection.bias.data.zero_()
+        
+        # Binary Loss
+        self.seq_fc.bias.data.zero_()
+        self.seq_fc.weight.data.uniform_(-initrange, initrange)
+        
+        # Frame Loss
+        self.frame_fc.bias.data.zero_()
+        self.frame_fc.weight.data.uniform_(-initrange, initrange)
+
+    # AI prompt: generate a description of the forward pass
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        """
+        Forward pass of the model.
+        Args:
+            src (Tensor): Input tensor of shape (batch_size, seq_len, feature_dim).
+            src_mask (Tensor, optional): The additive mask for the src sequence.
+            src_key_padding_mask (Tensor, optional): The byte mask for the src sequence.
+                                                    Indicates which elements are padding.
+                                                    Shape: (batch_size, seq_len).
+        Returns:
+            frame_probs (Tensor): Frame-level probabilities, shape (batch_size, seq_len).
+            seq_probs (Tensor): Sequence-level probabilities, shape (batch_size).
+        """
+        projected_src = self.input_projection(src)  # (batch_size, seq_len, model_dim)
+        
+        projected_src = self.pos_encoder(projected_src) # (batch_size, seq_len, model_dim)
+        
+        transformer_output = self.transformer_encoder(
+            projected_src, 
+            mask=src_mask, 
+            src_key_padding_mask=src_key_padding_mask
+        ) # (batch_size, seq_len, model_dim)
+
+        frame_logits = self.frame_fc(transformer_output)
+        frame_logits = frame_logits.squeeze(-1)  # (batch_size, seq_len)
+        frame_probs = self.frame_sigmoid(frame_logits)
+
+        if src_key_padding_mask is not None:
+            expanded_padding_mask = (~src_key_padding_mask).unsqueeze(-1).float() # (B, S, 1)
+            masked_output = transformer_output * expanded_padding_mask
+            summed_output = masked_output.sum(dim=1) # (B, D)
+            num_unmasked_elements = expanded_padding_mask.sum(dim=1) # (B, 1)
+            num_unmasked_elements = torch.clamp(num_unmasked_elements, min=1e-9) # divide by zero
+            seq_rep = summed_output / num_unmasked_elements
+        else:
+            seq_rep = transformer_output.mean(dim=1)
+        
+        # seq_logits (batch_size, 1)
+        seq_logits = self.seq_fc(seq_rep)
+        seq_logits = seq_logits.squeeze(-1)
+        seq_probs = self.seq_sigmoid(seq_logits)
+
+        return frame_probs, seq_probs
