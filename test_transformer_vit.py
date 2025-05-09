@@ -23,7 +23,7 @@ MODEL_CHECKPOINT_TIMESTAMP = "20250509170638" # Example: The TRAIN_RUN_TIMESTAMP
 
 # Timestamp/ID of the TEST ViT feature set you are using
 # User provided: TEST_DATA_TIMESTAMP = "250509_173651"
-TEST_DATA_TIMESTAMP = "250509_173651" # !!! UPDATE this for your test feature set
+TEST_DATA_TIMESTAMP = "250509_185359" # !!! UPDATE this for your test feature set
 
 # Feature directory structure (similar to your training script)
 # User provided: FEATURE_DIR_BASE = "CLIP_ViT_Features_Test_clip-vit-large-patch14"
