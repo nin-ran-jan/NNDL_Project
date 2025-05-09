@@ -65,3 +65,58 @@ def extract_features_batched_hf(all_numpy_frames,
         
     all_features_np = np.vstack(all_features_list)
     return all_features_np
+
+def extract_features_single_video_optimized(
+    video_frames_tensor_tchw, # Expects (T, C, H, W) uint8 or float32 tensor for ONE video
+    model,                    # Pre-initialized PyTorch model, already on target_device
+    processor,                # Pre-initialized CLIPProcessor
+    target_device,            # The device the model is on ('cuda' or 'cpu')
+    internal_model_batch_size=32 # Frames to feed to CLIP model at once
+):
+    # Ensure input tensor is on the same device as the model
+    if video_frames_tensor_tchw.device.type != target_device:
+        video_frames_tensor_tchw = video_frames_tensor_tchw.to(target_device)
+
+    num_frames = video_frames_tensor_tchw.shape[0]
+    if num_frames == 0:
+        return np.array([])
+
+    all_image_embeds_list = []
+    
+    # The CLIPProcessor expects images (PIL, numpy, or PyTorch tensors).
+    # If input is uint8 TCHW tensor, processor handles conversion & normalization.
+    # If input is float32 TCHW tensor, it should ideally be normalized already.
+    # VideoFrameDataset passes uint8 TCHW if self.transform is None, which is good for processor.
+    
+    with torch.no_grad():
+        for i in range(0, num_frames, internal_model_batch_size):
+            batch_of_frames_for_processor = video_frames_tensor_tchw[i : i + internal_model_batch_size]
+            
+            # `processor` handles resizing, normalization, and converts to (B, C, H_proc, W_proc)
+            inputs = processor(images=batch_of_frames_for_processor, return_tensors="pt", padding=True)
+            
+            # Move processed inputs to the target device
+            pixel_values = inputs['pixel_values'].to(target_device)
+            # attention_mask = inputs.get('attention_mask', None) # Optional
+            # if attention_mask is not None: attention_mask = attention_mask.to(target_device)
+            
+            model_inputs = {'pixel_values': pixel_values}
+            # if attention_mask is not None: model_inputs['attention_mask'] = attention_mask
+
+            amp_dtype = torch.bfloat16 if target_device == 'cuda' and torch.cuda.is_bf16_supported() else torch.float16
+            if target_device == 'cpu': amp_dtype = torch.float32
+
+            with torch.autocast(device_type=target_device, dtype=amp_dtype, enabled=(target_device != 'cpu')):
+                outputs = model(**model_inputs)
+                # Assuming model is CLIPVisionModelWithProjection, outputs.image_embeds exists
+                # Or use outputs.pooler_output or last_hidden_state[:,0] if it's a base vision model
+                image_embeds_batch = outputs.image_embeds if hasattr(outputs, 'image_embeds') else outputs.last_hidden_state[:, 0, :]
+
+
+            all_image_embeds_list.append(image_embeds_batch.cpu().to(torch.float32))
+
+    if not all_image_embeds_list:
+        return np.array([])
+        
+    all_features_tensor = torch.cat(all_image_embeds_list, dim=0)
+    return all_features_tensor.numpy()
