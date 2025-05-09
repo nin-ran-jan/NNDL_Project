@@ -2,11 +2,16 @@
 import torch
 import torchvision.io as tv_io
 import torchvision.transforms.functional as TF
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize # For CLIP
+from torchvision.transforms import Compose, Resize, CenterCrop, Normalize # Removed ToTensor, will handle manually
 import os
 import pandas as pd
 import numpy as np
-import cv2 # Temporary: For robust FPS and total_frame count, can be replaced if a pure torchvision way is found
+import cv2 # Temporary: For robust FPS and total_frame count
+
+# Define a picklable function or class for the transformation
+class ToFloatAndDivideBy255:
+    def __call__(self, image_tensor):
+        return image_tensor.float() / 255.0
 
 def compute_frame_label(t, alert_time, sigma_before=2.0, sigma_after=0.5, atol=0.18):
     if pd.isna(alert_time):
@@ -19,31 +24,32 @@ def compute_frame_label(t, alert_time, sigma_before=2.0, sigma_after=0.5, atol=0
         return np.exp(-((t - alert_time)**2) / (2 * sigma_after**2))
 
 class VideoFrameDataset(torch.utils.data.Dataset):
-    def __init__(self, df, video_dir, fps_target, sequence_length, 
-                 clip_processor=None, target_device='cpu'):
+    def __init__(self, df, video_dir, fps_target, sequence_length,
+                 clip_processor=None, target_device='cpu'): # target_device param added but not used heavily in __init__
         self.df = df.reset_index(drop=True)
         self.video_dir = video_dir
         self.fps_target = fps_target
         self.sequence_length = sequence_length
         self.atol_val = 1.0 / self.fps_target if self.fps_target > 0 else 0.18
-        self.target_device = target_device # Device to move tensors to ultimately
-        
-        # If a CLIP processor is provided, we can use its image preprocessing
-        # Otherwise, a generic one might be needed if frames are directly fed to model
-        self.clip_processor = clip_processor
+        # self.target_device = target_device # Not directly used for tensor creation in __init__
+
+        self.clip_processor = clip_processor # Store the processor if provided
         if self.clip_processor is None:
-            # Fallback generic transforms if no processor (e.g. resize, to_tensor, normalize)
-            # CLIP default input size is often 224x224
-            image_size = 224
+            # Fallback generic transforms if no processor
+            image_size = 224 # CLIP default input size
             self.transform = Compose([
-                Resize(image_size, interpolation=TF.InterpolationMode.BICUBIC),
+                # Resize and CenterCrop expect PIL Image or Tensor (C, H, W)
+                # Assuming input to transform will be CHW tensor
+                Resize(image_size, interpolation=TF.InterpolationMode.BICUBIC, antialias=True), # Add antialias for new torchvision
                 CenterCrop(image_size),
-                lambda image: image.float() / 255.0, # Convert to float [0,1]
+                ToFloatAndDivideBy255(), # Use the picklable class
                 Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
             ])
         else:
-            # The processor itself will handle transformations when called with PIL images or uint8 tensors
-            self.transform = None # Processor handles it
+            # If a processor is provided, it will handle transformations later.
+            # The dataset should then return frames suitable for the processor (e.g., uint8 TCHW tensors or list of PIL images).
+            # For now, assuming it returns uint8 TCHW tensors if processor is present.
+            self.transform = None
 
     def __len__(self):
         return len(self.df)
@@ -53,20 +59,19 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         video_id = row["id"]
         video_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
-        # Placeholder for default return values on error
-        # CLIP typically expects 3 channels.
-        # Assuming processor handles resize, so original H,W might not matter if frames can be read
-        # For placeholder, use a common small size if processor is not available.
-        placeholder_size = 224 if self.clip_processor else 224 # Default size for placeholder
-        default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_size, placeholder_size), dtype=torch.float32)
+        placeholder_size = 224
+        # Placeholder should match expected output type of transform or processor
+        if self.transform: # Will be float32, normalized
+            default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_size, placeholder_size), dtype=torch.float32)
+        else: # Will be uint8, for processor
+            default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_size, placeholder_size), dtype=torch.uint8)
         default_labels_tensor = torch.zeros(self.sequence_length, dtype=torch.float32)
 
         if not os.path.exists(video_path):
-            print(f"Warning: Video file not found {video_path}. Returning placeholders for {video_id}.")
+            # print(f"Warning: Video file not found {video_path}. Returning placeholders for {video_id}.") # Can be too verbose
             return video_id, default_frames_tensor, default_labels_tensor
 
         try:
-            # Using OpenCV temporarily for robust metadata, as torchvision's metadata can be tricky/slow
             cap_meta = cv2.VideoCapture(video_path)
             fps_cv = cap_meta.get(cv2.CAP_PROP_FPS)
             total_frames_cv = int(cap_meta.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -75,13 +80,11 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             fps = fps_cv if fps_cv > 0 and not np.isnan(fps_cv) else 30.0
             duration = total_frames_cv / fps if fps > 0 and total_frames_cv > 0 else 0.0
             
-            if total_frames_cv == 0 : # Video is empty or unreadable
+            if total_frames_cv == 0:
                  raise ValueError("Video has 0 frames or is unreadable.")
-
 
             alert_time = row["time_of_alert"]
             is_positive = not pd.isna(alert_time)
-
             tta = np.random.uniform(0.5, 1.5)
             window_start_time_sec, window_end_time_sec = 0.0, 0.0
 
@@ -95,99 +98,70 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                 window_end_time_sec = min(alert_time + tta, duration)
                 window_start_time_sec = max(0.0, window_end_time_sec - 10.0)
             
-            # Ensure window is valid
             if window_start_time_sec >= window_end_time_sec :
-                if duration > window_start_time_sec and duration > 0 : # if end is too small, read a tiny bit
-                    window_end_time_sec = window_start_time_sec + (1.0 / fps) # min 1 frame duration
-                else: # Cannot define a valid window
-                    raise ValueError(f"Cannot define a valid read window for {video_id}. Start: {window_start_time_sec}, End: {window_end_time_sec}, Duration: {duration}")
+                if duration > window_start_time_sec and duration > 0 :
+                    window_end_time_sec = window_start_time_sec + (1.0 / fps)
+                else:
+                    raise ValueError(f"Cannot define valid read window for {video_id}. Start: {window_start_time_sec}, End: {window_end_time_sec}, Duration: {duration}")
             window_end_time_sec = min(window_end_time_sec, duration)
 
-
-            # Read video segment using torchvision.io
-            # This attempts to use hardware acceleration if PyTorch is built with it.
-            # `read_video` loads frames into CPU memory as uint8 tensors (T, H, W, C) by default.
-            # We specify output_format="TCHW" for (T, C, H, W)
             vframes_tchw_uint8, _, info = tv_io.read_video(
-                video_path,
-                start_pts=window_start_time_sec,
-                end_pts=window_end_time_sec,
-                pts_unit='sec',
-                output_format="TCHW" # T, C, H, W and uint8
+                video_path, start_pts=window_start_time_sec, end_pts=window_end_time_sec,
+                pts_unit='sec', output_format="TCHW"
             )
 
             num_read_frames = vframes_tchw_uint8.shape[0]
-
-            final_frames_tensor = default_frames_tensor
+            final_frames_processed_tensor = default_frames_tensor # Initialize with placeholder
             labels_list = [0.0] * self.sequence_length
 
             if num_read_frames > 0:
-                # Subsample to self.sequence_length frames
                 selected_indices_in_vframes = np.linspace(0, num_read_frames - 1, self.sequence_length, dtype=int, endpoint=True)
-                subsampled_frames_tchw_uint8 = vframes_tchw_uint8[selected_indices_in_vframes] # (seq_len, C, H, W)
+                subsampled_frames_tchw_uint8 = vframes_tchw_uint8[selected_indices_in_vframes]
 
-                # Calculate labels
-                # For label calculation, use original video fps and intended sampling pattern for timing
                 orig_start_frame_idx = int(window_start_time_sec * fps)
                 orig_end_frame_idx = min(int(window_end_time_sec * fps), total_frames_cv -1)
                 if orig_start_frame_idx > orig_end_frame_idx: orig_start_frame_idx = orig_end_frame_idx
-                
-                # These are the frame indices in the *original* video we aimed for
                 original_sampled_indices_for_label = np.linspace(orig_start_frame_idx, orig_end_frame_idx, self.sequence_length, dtype=int, endpoint=True)
 
                 for i in range(self.sequence_length):
-                    # Timestamp for label calculation based on original video's FPS and intended sample
                     t_for_label = original_sampled_indices_for_label[i] / fps
                     labels_list[i] = compute_frame_label(t_for_label, alert_time, atol=self.atol_val)
 
-                # The CLIPProcessor expects a list of PIL Images or a batch of pixel_values.
-                # If we pass uint8 tensors, it should handle it.
-                # If self.transform is defined (no clip_processor), apply it
-                if self.transform: # Not using CLIP processor directly here
-                    # Convert TCHW (uint8) to list of CHW (float) for transform
-                    processed_frames_list = []
-                    for i in range(subsampled_frames_tchw_uint8.shape[0]):
-                        frame_chw_uint8 = subsampled_frames_tchw_uint8[i] # CHW
-                        processed_frames_list.append(self.transform(frame_chw_uint8))
-                    final_frames_tensor = torch.stack(processed_frames_list) # (seq_len, C, H, W) float32 normalized
-                else:
-                    # If CLIP processor will be used later, keep as uint8 TCHW or convert to list of PIL
-                    # For simplicity, Vit_feature_extract will take this uint8 tensor.
-                    final_frames_tensor = subsampled_frames_tchw_uint8 # (seq_len, C, H, W) uint8
-            
+                if self.transform: # Apply pre-defined transform (if clip_processor was None)
+                    # self.transform expects CHW, but stack needs list of CHW.
+                    # So, iterate, transform, then stack.
+                    transformed_frames_list = []
+                    for i_frame in range(subsampled_frames_tchw_uint8.shape[0]):
+                        frame_to_transform = subsampled_frames_tchw_uint8[i_frame] # CHW uint8
+                        transformed_frames_list.append(self.transform(frame_to_transform))
+                    final_frames_processed_tensor = torch.stack(transformed_frames_list) # Should be (seq_len, C, H_proc, W_proc) float32
+                elif self.clip_processor is not None:
+                    # If a processor is available, __getitem__ should ideally return data
+                    # that the processor can directly consume (e.g. list of PIL images or uint8 tensors).
+                    # The current `extract_features_single_video_optimized` expects uint8 TCHW tensors.
+                    final_frames_processed_tensor = subsampled_frames_tchw_uint8 # Pass uint8 TCHW as is
+                else: # Should not happen if one of the above is true
+                    final_frames_processed_tensor = subsampled_frames_tchw_uint8
+
+
             labels_tensor = torch.tensor(labels_list, dtype=torch.float32)
-            
-            # Move to target_device if specified (usually done in DataLoader's collate_fn or main loop)
-            # For now, let __getitem__ return CPU tensors; DataLoader can move batches to GPU.
-            # This is safer with num_workers > 0.
-            return video_id, final_frames_tensor.cpu(), labels_tensor.cpu()
+            # Return CPU tensors. DataLoader will handle moving to GPU if pin_memory=True.
+            return video_id, final_frames_processed_tensor.cpu(), labels_tensor.cpu()
 
         except Exception as e:
-            print(f"Error processing video {video_id} ({video_path}): {e}. Returning placeholders.")
+            # print(f"Error processing video {video_id} ({video_path}): {e}. Returning placeholders.") # Can be verbose
             return video_id, default_frames_tensor.cpu(), default_labels_tensor.cpu()
 
-def collate_fn_videos(batch):
+def collate_fn_videos(batch): # Kept for B > 1, but current main script uses B=1
     video_ids = [item[0] for item in batch]
-    # item[1] is (T, C, H, W)
-    # item[2] is (T,)
-    
-    # Pad frame tensors if they have different T (sequence_length) - should not happen with this dataset design
-    # Pad label tensors if they have different T - should not happen
     frames_list = [item[1] for item in batch]
     labels_list = [item[2] for item in batch]
-
-    # If all items have the same shape, stack them.
-    # This creates (B, T, C, H, W) for frames and (B, T) for labels.
     try:
         frames_batch = torch.stack(frames_list, dim=0)
         labels_batch = torch.stack(labels_list, dim=0)
     except RuntimeError as e:
-        # Handle cases where stacking might fail due to inconsistent shapes (e.g., from errors)
-        print(f"Error during collate_fn stacking: {e}. Check placeholder shapes or errors in __getitem__.")
-        # Fallback: return lists, or handle more gracefully
-        # This indicates an issue in __getitem__ if shapes are not consistent for sequence_length
-        # For now, let it raise or return uncollated if needed.
-        # A robust collate_fn would pad, but our dataset should give fixed seq_len.
-        return video_ids, frames_list, labels_list # Fallback
-
+        # This might happen if placeholder shapes don't match actual data shapes
+        # or if an error in __getitem__ returns tensors of unexpected shapes.
+        print(f"Error during collate_fn stacking: {e}. Returning uncollated lists.")
+        return video_ids, frames_list, labels_list
     return video_ids, frames_batch, labels_batch

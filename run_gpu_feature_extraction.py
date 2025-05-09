@@ -99,7 +99,7 @@ if __name__ == "__main__":
         video_dir=TRAIN_VIDEO_DIR,
         fps_target=FPS_TARGET,
         sequence_length=SEQUENCE_LENGTH,
-        clip_processor=CLIPProcessor.from_pretrained(VIT_MODEL_NAME, use_fast=False), # Pass None, Vit_feature_extract will use its own instance or a passed one
+        clip_processor=None, # Pass None, Vit_feature_extract will use its own instance or a passed one
                                # The dataset currently keeps frames as uint8 if processor is None
         target_device='cpu'     # Dataset __getitem__ returns CPU tensors. DataLoader moves to GPU.
     )
