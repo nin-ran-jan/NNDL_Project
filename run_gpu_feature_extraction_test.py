@@ -31,8 +31,8 @@ if __name__ == "__main__":
     # Batch size for PyTorch DataLoader (number of videos for __getitem__ calls).
     # Set to 1 to process one video's frames at a time with the feature extractor.
     VIDEO_LOADER_BATCH_SIZE = 1 
-    DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2)
-    # DATALOADER_NUM_WORKERS = 0 # Start with 0 for debugging
+    # DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2)
+    DATALOADER_NUM_WORKERS = 0 # Start with 0 for debugging
 
     # ViT model's internal batch size for processing a sequence of frames
     INTERNAL_VIT_FRAME_BATCH_SIZE = 32 
@@ -136,11 +136,21 @@ if __name__ == "__main__":
             # Get frames for a single video: (T, C, H, W), uint8, already on TARGET_DEVICE
             single_video_frames_tensor = frames_batch_tensor[i] 
 
+            # --- BEGIN DEBUG PRINTS ---
+            print(f"\n--- MainScript DEBUG for Video ID: {video_id} ---")
+            print(f"  single_video_frames_tensor.shape: {single_video_frames_tensor.shape}")
+            print(f"  single_video_frames_tensor.dtype: {single_video_frames_tensor.dtype}")
+            print(f"  single_video_frames_tensor.nelement(): {single_video_frames_tensor.nelement()}")
+            print(f"  Expected SEQUENCE_LENGTH: {SEQUENCE_LENGTH}")
+            # --- END DEBUG PRINTS ---
+
             if single_video_frames_tensor.nelement() == 0 or \
                single_video_frames_tensor.shape[0] != SEQUENCE_LENGTH: # Check for empty or malformed
-                # print(f"  Warning: Insufficient/empty frames for test video {video_id}. Appending empty features.")
+                print(f"  Warning: Insufficient/empty frames for test video {video_id}. Appending empty features.")
                 video_features_np = np.array([]) # Placeholder for problematic video
             else:
+                # --- BEGIN DEBUG PRINTS ---
+                print(f"  Calling extract_features_single_video_optimized for {video_id} with frame shape {single_video_frames_tensor.shape}")
                 video_features_np = extract_features_single_video_optimized(
                     video_frames_tensor_tchw=single_video_frames_tensor,
                     model=feature_extraction_model,
@@ -148,6 +158,9 @@ if __name__ == "__main__":
                     target_device=TARGET_DEVICE,
                     internal_model_batch_size=INTERNAL_VIT_FRAME_BATCH_SIZE
                 )
+            
+            # --- BEGIN DEBUG PRINTS ---
+            print(f"  Returned video_features_np.shape for {video_id}: {video_features_np.shape if isinstance(video_features_np, np.ndarray) else 'Not a numpy array'}")
 
             current_saving_batch_features_list.append(video_features_np)
             current_saving_batch_ids_list.append(video_id)

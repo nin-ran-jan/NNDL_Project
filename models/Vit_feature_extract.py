@@ -67,56 +67,70 @@ def extract_features_batched_hf(all_numpy_frames,
     return all_features_np
 
 def extract_features_single_video_optimized(
-    video_frames_tensor_tchw, # Expects (T, C, H, W) uint8 or float32 tensor for ONE video
-    model,                    # Pre-initialized PyTorch model, already on target_device
-    processor,                # Pre-initialized CLIPProcessor
-    target_device,            # The device the model is on ('cuda' or 'cpu')
-    internal_model_batch_size=32 # Frames to feed to CLIP model at once
+    video_frames_tensor_tchw,
+    model,
+    processor,
+    target_device,
+    internal_model_batch_size=32
 ):
-    # Ensure input tensor is on the same device as the model
-    if video_frames_tensor_tchw.device.type != target_device:
+    # --- BEGIN EXTRACTOR DEBUG ---
+    print(f"    Extractor DEBUG: Received video_frames_tensor_tchw.shape: {video_frames_tensor_tchw.shape}, dtype: {video_frames_tensor_tchw.dtype}")
+    # --- END EXTRACTOR DEBUG ---
+
+    if video_frames_tensor_tchw.device.type != target_device: # Should be on target_device already from main script
         video_frames_tensor_tchw = video_frames_tensor_tchw.to(target_device)
 
     num_frames = video_frames_tensor_tchw.shape[0]
     if num_frames == 0:
+        print("    Extractor DEBUG: num_frames is 0. Returning empty np.array.")
         return np.array([])
 
     all_image_embeds_list = []
     
-    # The CLIPProcessor expects images (PIL, numpy, or PyTorch tensors).
-    # If input is uint8 TCHW tensor, processor handles conversion & normalization.
-    # If input is float32 TCHW tensor, it should ideally be normalized already.
-    # VideoFrameDataset passes uint8 TCHW if self.transform is None, which is good for processor.
-    
     with torch.no_grad():
-        for i in range(0, num_frames, internal_model_batch_size):
-            batch_of_frames_for_processor = video_frames_tensor_tchw[i : i + internal_model_batch_size]
+        for i_loop in range(0, num_frames, internal_model_batch_size):
+            batch_of_frames_for_processor = video_frames_tensor_tchw[i_loop : i_loop + internal_model_batch_size]
+            # --- BEGIN EXTRACTOR LOOP DEBUG ---
+            print(f"      Extractor Loop DEBUG: Processing frame batch {i_loop // internal_model_batch_size + 1}, shape: {batch_of_frames_for_processor.shape}")
+            # --- END EXTRACTOR LOOP DEBUG ---
             
-            # `processor` handles resizing, normalization, and converts to (B, C, H_proc, W_proc)
-            inputs = processor(images=batch_of_frames_for_processor, return_tensors="pt", padding=True)
-            
-            # Move processed inputs to the target device
-            pixel_values = inputs['pixel_values'].to(target_device)
-            # attention_mask = inputs.get('attention_mask', None) # Optional
-            # if attention_mask is not None: attention_mask = attention_mask.to(target_device)
-            
-            model_inputs = {'pixel_values': pixel_values}
-            # if attention_mask is not None: model_inputs['attention_mask'] = attention_mask
+            try:
+                inputs = processor(images=batch_of_frames_for_processor, return_tensors="pt", padding=True)
+                pixel_values = inputs['pixel_values'].to(target_device)
+                # --- MORE EXTRACTOR DEBUG ---
+                print(f"        Extractor DEBUG: Processor output pixel_values.shape: {pixel_values.shape}, dtype: {pixel_values.dtype}")
+                # --- END MORE EXTRACTOR DEBUG ---
 
-            amp_dtype = torch.bfloat16 if target_device == 'cuda' and torch.cuda.is_bf16_supported() else torch.float16
-            if target_device == 'cpu': amp_dtype = torch.float32
+                model_inputs = {'pixel_values': pixel_values}
+                
+                amp_dtype = torch.bfloat16 if target_device == 'cuda' and torch.cuda.is_bf16_supported() else torch.float16
+                if target_device == 'cpu': amp_dtype = torch.float32
 
-            with torch.autocast(device_type=target_device, dtype=amp_dtype, enabled=(target_device != 'cpu')):
-                outputs = model(**model_inputs)
-                # Assuming model is CLIPVisionModelWithProjection, outputs.image_embeds exists
-                # Or use outputs.pooler_output or last_hidden_state[:,0] if it's a base vision model
-                image_embeds_batch = outputs.image_embeds if hasattr(outputs, 'image_embeds') else outputs.last_hidden_state[:, 0, :]
+                with torch.autocast(device_type=target_device, dtype=amp_dtype, enabled=(target_device != 'cpu')):
+                    outputs = model(**model_inputs)
+                    image_embeds_batch = outputs.image_embeds if hasattr(outputs, 'image_embeds') else outputs.last_hidden_state[:, 0, :]
+                
+                # --- MORE EXTRACTOR DEBUG ---
+                print(f"        Extractor DEBUG: Model output image_embeds_batch.shape: {image_embeds_batch.shape}, dtype: {image_embeds_batch.dtype}")
+                # --- END MORE EXTRACTOR DEBUG ---
+                all_image_embeds_list.append(image_embeds_batch.cpu().to(torch.float32))
 
-
-            all_image_embeds_list.append(image_embeds_batch.cpu().to(torch.float32))
+            except Exception as e_inner:
+                print(f"      ERROR in Extractor Loop for video (frames {i_loop}-{i_loop+internal_model_batch_size}): {type(e_inner).__name__} - {e_inner}")
+                # Decide if you want to continue or return empty if any batch fails
+                # For now, let it continue and potentially result in an empty all_image_embeds_list if all fail
 
     if not all_image_embeds_list:
+        print("    Extractor DEBUG: all_image_embeds_list is empty after loop. Returning empty np.array.")
         return np.array([])
         
-    all_features_tensor = torch.cat(all_image_embeds_list, dim=0)
-    return all_features_tensor.numpy()
+    try:
+        all_features_tensor = torch.cat(all_image_embeds_list, dim=0)
+        # --- MORE EXTRACTOR DEBUG ---
+        print(f"    Extractor DEBUG: Concatenated all_features_tensor.shape: {all_features_tensor.shape}")
+        # --- END MORE EXTRACTOR DEBUG ---
+        return all_features_tensor.numpy()
+    except Exception as e_cat:
+        print(f"    Extractor DEBUG: ERROR during torch.cat: {e_cat}. all_image_embeds_list content: {[(t.shape, t.dtype) for t in all_image_embeds_list]}")
+        print("    Extractor DEBUG: Returning empty np.array due to torch.cat error.")
+        return np.array([])
