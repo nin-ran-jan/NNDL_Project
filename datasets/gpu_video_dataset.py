@@ -33,23 +33,6 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         self.atol_val = 1.0 / self.fps_target if self.fps_target > 0 else 0.18
         # self.target_device = target_device # Not directly used for tensor creation in __init__
 
-        self.clip_processor = clip_processor # Store the processor if provided
-        if self.clip_processor is None:
-            # Fallback generic transforms if no processor
-            image_size = 224 # CLIP default input size
-            self.transform = Compose([
-                # Resize and CenterCrop expect PIL Image or Tensor (C, H, W)
-                # Assuming input to transform will be CHW tensor
-                Resize(image_size, interpolation=TF.InterpolationMode.BICUBIC, antialias=True), # Add antialias for new torchvision
-                CenterCrop(image_size),
-                ToFloatAndDivideBy255(), # Use the picklable class
-                Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
-            ])
-        else:
-            # If a processor is provided, it will handle transformations later.
-            # The dataset should then return frames suitable for the processor (e.g., uint8 TCHW tensors or list of PIL images).
-            # For now, assuming it returns uint8 TCHW tensors if processor is present.
-            self.transform = None
 
     def __len__(self):
         return len(self.df)
@@ -63,12 +46,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         print(f"\n--- Debugging Video ID: {video_id} ---")
         print(f"Raw row data: time_of_event={row.get('time_of_event', 'N/A')}, time_of_alert={row.get('time_of_alert', 'N/A')}")
 
-        placeholder_size = 224
-        # Placeholder should match expected output type of transform or processor
-        if self.transform: # Will be float32, normalized
-            default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_size, placeholder_size), dtype=torch.float32)
-        else: # Will be uint8, for processor
-            default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_size, placeholder_size), dtype=torch.uint8)
+        # Placeholder as uint8, as this is what we'll return for actual frames
+        # Processor will resize, so exact placeholder H,W less critical, but use something:
+        placeholder_h, placeholder_w = 224, 224
+        default_frames_tensor = torch.zeros((self.sequence_length, 3, placeholder_h, placeholder_w), dtype=torch.uint8)
         default_labels_tensor = torch.zeros(self.sequence_length, dtype=torch.float32)
 
         if not os.path.exists(video_path):
@@ -133,6 +114,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             )
 
             num_read_frames = vframes_tchw_uint8.shape[0]
+            final_frames_to_return = default_frames_tensor
 
             # debug statements
             print(f"  tv_io.read_video returned {num_read_frames} frames. Shape: {vframes_tchw_uint8.shape}. Info: {info}")
@@ -159,21 +141,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                     #for debugging
                     print(f"  Frame {i}: t_for_label={t_for_label:.3f}s, alert_time={alert_time}, label_val={labels_list[i]:.3f}, isclose={np.isclose(t_for_label, alert_time, self.atol_val)}")
 
-                if self.transform: # Apply pre-defined transform (if clip_processor was None)
-                    # self.transform expects CHW, but stack needs list of CHW.
-                    # So, iterate, transform, then stack.
-                    transformed_frames_list = []
-                    for i_frame in range(subsampled_frames_tchw_uint8.shape[0]):
-                        frame_to_transform = subsampled_frames_tchw_uint8[i_frame] # CHW uint8
-                        transformed_frames_list.append(self.transform(frame_to_transform))
-                    final_frames_processed_tensor = torch.stack(transformed_frames_list) # Should be (seq_len, C, H_proc, W_proc) float32
-                elif self.clip_processor is not None:
-                    # If a processor is available, __getitem__ should ideally return data
-                    # that the processor can directly consume (e.g. list of PIL images or uint8 tensors).
-                    # The current `extract_features_single_video_optimized` expects uint8 TCHW tensors.
-                    final_frames_processed_tensor = subsampled_frames_tchw_uint8 # Pass uint8 TCHW as is
-                else: # Should not happen if one of the above is true
-                    final_frames_processed_tensor = subsampled_frames_tchw_uint8
+                final_frames_to_return = subsampled_frames_tchw_uint8 # Return uint8 TCHW tensors
                 print(f"  Final labels_list for {video_id} (inside num_read_frames > 0): {[f'{l:.3f}' for l in labels_list]}")
             else:
                 print(f"  num_read_frames was NOT > 0 for {video_id}. Labels will be default zeros.")
@@ -182,7 +150,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
 
             labels_tensor = torch.tensor(labels_list, dtype=torch.float32)
             # Return CPU tensors. DataLoader will handle moving to GPU if pin_memory=True.
-            return video_id, final_frames_processed_tensor.cpu(), labels_tensor.cpu()
+            return video_id, final_frames_to_return.cpu(), labels_tensor.cpu()
 
         except Exception as e:
             print(f"Error processing video {video_id} ({video_path}): {e}. Returning placeholders.") # Can be verbose
