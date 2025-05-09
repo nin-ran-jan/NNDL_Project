@@ -31,8 +31,8 @@ if __name__ == "__main__":
     # Batch size for PyTorch DataLoader (number of videos for __getitem__ calls).
     # Set to 1 to process one video's frames at a time with the feature extractor.
     VIDEO_LOADER_BATCH_SIZE = 1 
-    # DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2)
-    DATALOADER_NUM_WORKERS = 0 # Start with 0 for debugging
+    DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2)
+    # DATALOADER_NUM_WORKERS = 0 # Start with 0 for debugging
 
     # ViT model's internal batch size for processing a sequence of frames
     INTERNAL_VIT_FRAME_BATCH_SIZE = 32 
