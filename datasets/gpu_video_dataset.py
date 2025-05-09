@@ -172,7 +172,7 @@ def collate_fn_videos(batch): # Kept for B > 1, but current main script uses B=1
 
 class TestVideoFrameDataset(torch.utils.data.Dataset):
     def __init__(self, df, video_dir, sequence_length, 
-                 frame_resolution_h_w_tuple=(720, 1280)): # (Height, Width) for placeholder
+                 frame_resolution_h_w_tuple=(720, 1280)): # For placeholder
         self.df = df.reset_index(drop=True)
         self.video_dir = video_dir
         self.sequence_length = sequence_length
@@ -183,82 +183,65 @@ class TestVideoFrameDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        video_id_str = row["id"] # Ensure your test CSV has an 'id' column
+        video_id_str = row["id"]
         video_path = os.path.join(self.video_dir, f"{video_id_str}.mp4")
 
-        # Placeholder as uint8, TCHW format
         default_frames_tensor = torch.zeros((self.sequence_length, 3, self.placeholder_h, self.placeholder_w), dtype=torch.uint8)
 
         if not os.path.exists(video_path):
-            # print(f"Warning: Test video file not found {video_path}. Returning placeholders for {video_id_str}.")
-            return video_id_str, default_frames_tensor
-
-        frames_for_video_tensors = []
-        cap = None # Initialize cap to None for finally block
+            # print(f"Warning: Test video file not found {video_path}. Returning placeholders.")
+            return video_id_str, default_frames_tensor.cpu()
 
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                # print(f"Warning: Could not open test video {video_path} with CV2. Returning placeholders.")
-                return video_id_str, default_frames_tensor
-
-            total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            if total_video_frames == 0:
-                # print(f"Warning: Test video {video_path} has 0 frames (CV2). Returning placeholders.")
-                return video_id_str, default_frames_tensor
-
-            frame_indices_to_sample = np.linspace(0, total_video_frames - 1, self.sequence_length, dtype=int, endpoint=True)
-
-            for frame_idx in frame_indices_to_sample:
-                current_frame_np = None
-                if 0 <= frame_idx < total_video_frames: # Ensure index is valid
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                    ret, frame = cap.read() # BGR, HWC, uint8
-                    if ret and frame is not None:
-                        current_frame_np = frame
-                
-                if current_frame_np is None: # Fallback if read fails or index was initially out of bound somehow
-                    # Create a BGR placeholder consistent with OpenCV output before conversion
-                    current_frame_np = np.zeros((self.placeholder_h, self.placeholder_w, 3), dtype=np.uint8)
-                
-                frame_rgb = cv2.cvtColor(current_frame_np, cv2.COLOR_BGR2RGB)
-                # Convert HWC uint8 to CHW uint8 Tensor
-                frame_tensor_chw = torch.from_numpy(frame_rgb.transpose((2, 0, 1)))
-                frames_for_video_tensors.append(frame_tensor_chw)
+            # Read the entire video since test videos are expected to be short (around 10s)
+            # output_format="TCHW" gives (T, C, H, W) uint8 tensors
+            vframes_tchw_uint8, _, info = tv_io.read_video(video_path, output_format="TCHW")
             
-            # Ensure sequence length consistency by padding if fewer frames were read than expected
-            # (shouldn't happen if placeholder logic for failed reads is robust)
-            while len(frames_for_video_tensors) < self.sequence_length:
-                placeholder_chw = torch.zeros((3, self.placeholder_h, self.placeholder_w), dtype=torch.uint8)
-                frames_for_video_tensors.append(placeholder_chw)
+            num_read_frames = vframes_tchw_uint8.shape[0]
+            final_frames_tensor = default_frames_tensor # Initialize
+
+            if num_read_frames == 0:
+                # print(f"Warning: Test video {video_path} read 0 frames with torchvision. Returning placeholders.")
+                pass # final_frames_tensor is already default_frames_tensor
+            elif num_read_frames < self.sequence_length:
+                # Video is shorter than desired sequence_length, pad with default frames
+                # print(f"Warning: Test video {video_path} has {num_read_frames} frames, less than {self.sequence_length}. Padding.")
+                padding_needed = self.sequence_length - num_read_frames
+                # Ensure placeholder has same C, H, W as read frames if possible, or use fixed placeholder size
+                c, h, w = vframes_tchw_uint8.shape[1:] if num_read_frames > 0 else (3, self.placeholder_h, self.placeholder_w)
+                padding_frames = torch.zeros((padding_needed, c, h, w), dtype=torch.uint8)
+                final_frames_tensor = torch.cat((vframes_tchw_uint8, padding_frames), dim=0)
+            else:
+                # Video has enough frames, sample SEQUENCE_LENGTH frames evenly
+                frame_indices_to_sample = np.linspace(0, num_read_frames - 1, self.sequence_length, dtype=int, endpoint=True)
+                final_frames_tensor = vframes_tchw_uint8[frame_indices_to_sample]
             
-            if len(frames_for_video_tensors) > self.sequence_length: # Should not occur with linspace
-                frames_for_video_tensors = frames_for_video_tensors[:self.sequence_length]
-
-            final_frames_tensor = torch.stack(frames_for_video_tensors) # (Sequence, C, H, W) uint8
-
             return video_id_str, final_frames_tensor.cpu()
 
         except Exception as e:
             # print(f"  CRITICAL ERROR in TestVideoFrameDataset for {video_id_str} ({video_path}): {type(e).__name__} - {e}. Returning placeholders.")
             return video_id_str, default_frames_tensor.cpu()
-        finally:
-            if cap is not None and cap.isOpened():
-                cap.release()
 
-# Simpler collate for test (video_id, frames_batch_tensor)
+# test_collate_fn remains the same
 def test_collate_fn(batch):
     video_ids = [item[0] for item in batch]
-    frames_list = [item[1] for item in batch] # item[1] is (T,C,H,W)
-    
-    # Assuming all tensors in frames_list have the same shape (T,C,H,W) due to __getitem__ logic
+    frames_list = [item[1] for item in batch]
     try:
-        frames_batch = torch.stack(frames_list, dim=0) # Stacks to (B, T, C, H, W)
+        frames_batch = torch.stack(frames_list, dim=0)
     except RuntimeError as e:
-        print(f"Error stacking frames in test_collate_fn: {e}. This might indicate inconsistent frame tensor shapes from __getitem__.")
-        # Fallback or error handling for inconsistent shapes (e.g. if placeholders had different H,W)
-        # For now, we assume __getitem__ returns consistent shapes.
-        # If error, return uncollated lists for debugging.
-        return video_ids, frames_list
-
+        print(f"Error during test_collate_fn stacking: {e}. This might indicate inconsistent frame tensor shapes from __getitem__.")
+        # Attempt to find max dimensions and pad (basic example)
+        # This part needs robust implementation if shapes can truly vary due to errors
+        # For now, assume __getitem__ tries to return consistent shapes or placeholders.
+        # If shapes are truly variable and need padding, this collate_fn needs to be more complex.
+        # A simpler approach if errors cause variable shapes is to ensure placeholders are always same shape.
+        
+        # Fallback if stacking fails (e.g. if a placeholder had different H,W from actual frames)
+        # To ensure __getitem__ returns consistent placeholder shapes:
+        # default_frames_tensor should have C,H,W consistent with expected output frames.
+        # If read_video fails completely, default_frames_tensor is returned.
+        # If read_video gives frames of different H,W than placeholder, this collate could fail.
+        # However, for now, assume frames and placeholders aim for similar dimensions or CLIPProcessor handles final resize.
+        # If this error is hit, it points to an issue in __getitem__'s error/placeholder logic for shape consistency.
+        return video_ids, frames_list # Return uncollated for debugging if stack fails
     return video_ids, frames_batch
