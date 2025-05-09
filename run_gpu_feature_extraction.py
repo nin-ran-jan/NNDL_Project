@@ -30,8 +30,7 @@ if __name__ == "__main__":
     # For simplicity and to match current feature extraction logic (one video's features at a time), start with 1.
     VIDEO_LOADER_BATCH_SIZE = 1
     # Number of workers for PyTorch DataLoader. 0 for main process, >0 for parallel.
-    # DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2) # Start with 0 for debugging if issues arise
-    DATALOADER_NUM_WORKERS = 0   
+    DATALOADER_NUM_WORKERS = max(0, os.cpu_count() // 2 if os.cpu_count() else 2) # Start with 0 for debugging if issues arise
     OUTPUT_SAVE_INTERVAL_VIDEOS = 64 # How many videos' features/labels to save together
 
     TARGET_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
