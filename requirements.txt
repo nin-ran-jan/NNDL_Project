@@ -3,3 +3,5 @@ opencv-python
 torch
 torchvision
 tqdm
+transformers
+Pillow
