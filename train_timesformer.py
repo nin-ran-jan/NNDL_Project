@@ -26,7 +26,7 @@ from models.custom_timesformer import HFCustomTimeSformer
 # --- Configuration ---
 # Path Configuration
 BASE_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__)) # Assumes script is in hf_timesformer_pipeline
-BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "../nexar-collision-prediction") # Adjust if your data is elsewhere
+BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "./nexar-collision-prediction") # Adjust if your data is elsewhere
 TRAIN_CSV_PATH = os.path.join(BASE_DATA_DIR, "train.csv")
 TRAIN_VIDEO_DIR = os.path.join(BASE_DATA_DIR, "train")
 
