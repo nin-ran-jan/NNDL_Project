@@ -25,7 +25,7 @@ batch_indices = sorted(list(set(
     if f.startswith("train_features_saving_batch") and f.endswith(".npy")
 )))
 
-model = ResNetLSTM(dropout=0).to(device)
+model = ResNetLSTM(input_dim=768, dropout=0).to(device)
 model.load_state_dict(torch.load(checkpoint_path, map_location=device))
 model.eval()
 
