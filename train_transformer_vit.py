@@ -176,7 +176,7 @@ print(f"Validation dataset size: {len(val_dataset)}")
 
 # Create DataLoaders with the collate function
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_sequences)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_sequences)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_sequences)
 
 # --- Model, Optimizer, Criterion ---
 model = ViTTransformer(
@@ -218,6 +218,8 @@ for epoch in range(EPOCHS):
         print(f"frame_labels: {frame_labels.shape}, binary_labels: {binary_labels.shape}")
         print(f"binary_labels: {binary_labels}")
         print(f"binary_pred: {binary_pred}")
+        print(f"frame_preds: {frame_preds[0]}")
+        print(f"frame_labels: {frame_labels.squeeze(-1)[0]}")
 
         # Binary loss (sequence-level)
         loss_binary = criterion_binary(binary_pred, binary_labels)
