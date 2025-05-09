@@ -39,15 +39,13 @@ CHECKPOINT_DIR = "checkpoints"
 CHECKPOINT_FILENAME = f"ViTTransformer_best_{MODEL_CHECKPOINT_TIMESTAMP}.pth"
 MODEL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, CHECKPOINT_FILENAME)
 
-# Model Hyperparameters for ViTTransformer (MUST match the loaded checkpoint's model)
+# Model Hyperparameters for ViTTransformer
 VIT_FEATURE_DIM = 768      
-MODEL_DIM = 512            
-N_HEADS = 8                
-NUM_ENCODER_LAYERS = 4     
-DIM_FEEDFORWARD = 1024     
-# Dropout in __init__ is an architectural choice. model.eval() handles its behavior during inference.
-# Set this to the dropout value the loaded model was trained with.
-MODEL_DROPOUT = 0.25 # Example, ensure this matches the loaded model's config
+MODEL_DIM =  128           
+N_HEADS =  4               
+NUM_ENCODER_LAYERS = 2     
+DIM_FEEDFORWARD = 640    
+DROPOUT = 0.3
 
 # Test Hyperparameters
 BATCH_SIZE = 32
