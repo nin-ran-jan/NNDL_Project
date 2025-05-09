@@ -159,7 +159,7 @@ class FrameCollector:
                                          Set to 0 or 1 for sequential processing (debugging).
         """
         if num_workers is None:
-            num_workers = 3
+            num_workers = 2
         # Ensure num_workers is at least 1 for the Pool, or handle sequential case
         if num_workers <=0 : num_workers = 1
 
