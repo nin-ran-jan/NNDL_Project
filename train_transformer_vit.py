@@ -83,8 +83,8 @@ def load_all_features_and_labels(feature_dir_path):
         return None, None
 
     for batch_idx in batch_indices:
-        feature_file = f"train_features_saving_batch{batch_idx}.npy"
-        label_file = f"train_labels_saving_batch{batch_idx}.npy"
+        feature_file = f"train_features_saving_batch_{batch_idx}.npy"
+        label_file = f"train_labels_saving_batch_{batch_idx}.npy"
         
         feature_path = os.path.join(feature_dir_path, feature_file)
         label_path = os.path.join(feature_dir_path, label_file)
