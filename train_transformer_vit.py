@@ -214,6 +214,11 @@ for epoch in range(EPOCHS):
         frame_preds, binary_pred = model(sequences, src_key_padding_mask=padding_mask)
         # frame_preds: (B, S), binary_pred: (B)
 
+        print(f"frame_preds: {frame_preds.shape}, binary_pred: {binary_pred.shape}")
+        print(f"frame_labels: {frame_labels.shape}, binary_labels: {binary_labels.shape}")
+        print(f"binary_labels: {binary_labels}")
+        print(f"binary_pred: {binary_pred}")
+
         # Binary loss (sequence-level)
         loss_binary = criterion_binary(binary_pred, binary_labels)
 
