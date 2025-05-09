@@ -19,7 +19,7 @@ TRAIN_RUN_TIMESTAMP = time.strftime("%Y%m%d%H%M%S")
 # This should match the suffix of your feature files if they have one.
 # If your feature files are just "train_features_batchX.npy", you can simplify the loading logic.
 # For this example, I'll assume there's a DATA_TIMESTAMP associated with the feature set.
-DATA_TIMESTAMP = "250509_055947" # !!! UPDATE this to your feature set's timestamp or ID
+DATA_TIMESTAMP = "250509_162201" # !!! UPDATE this to your feature set's timestamp or ID
 
 FEATURE_DIR_BASE = "processed_data/CLIP_ViT_Features_clip-vit-large-patch14"  
 # The script will look for files like "train_features_batch0_DATA_TIMESTAMP.npy"
