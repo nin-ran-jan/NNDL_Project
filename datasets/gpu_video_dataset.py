@@ -58,6 +58,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         row = self.df.iloc[idx]
         video_id = row["id"]
         video_path = os.path.join(self.video_dir, f"{video_id}.mp4")
+        
+        # for debugging
+        print(f"\n--- Debugging Video ID: {video_id} ---")
+        print(f"Raw row data: time_of_event={row.get('time_of_event', 'N/A')}, time_of_alert={row.get('time_of_alert', 'N/A')}")
 
         placeholder_size = 224
         # Placeholder should match expected output type of transform or processor
@@ -77,8 +81,15 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             total_frames_cv = int(cap_meta.get(cv2.CAP_PROP_FRAME_COUNT))
             cap_meta.release()
 
+
             fps = fps_cv if fps_cv > 0 and not np.isnan(fps_cv) else 30.0
             duration = total_frames_cv / fps if fps > 0 and total_frames_cv > 0 else 0.0
+
+            # debug statements
+            print(f"  Metadata: fps={fps:.2f}, duration={duration:.2f}s, total_frames_cv={total_frames_cv}")
+            if total_frames_cv == 0:
+                print(f"  ERROR: total_frames_cv is 0 for {video_id}. Raising ValueError.")
+                raise ValueError("Video has 0 frames or is unreadable.")
             
             if total_frames_cv == 0:
                  raise ValueError("Video has 0 frames or is unreadable.")
@@ -87,6 +98,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             is_positive = not pd.isna(alert_time)
             tta = np.random.uniform(0.5, 1.5)
             window_start_time_sec, window_end_time_sec = 0.0, 0.0
+
+
+            # debug statements
+            print(f"  Alert Info: alert_time={alert_time}, is_positive={is_positive}")
 
             if not is_positive:
                 window_start_time_sec = 0.0
@@ -104,6 +119,13 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                 else:
                     raise ValueError(f"Cannot define valid read window for {video_id}. Start: {window_start_time_sec}, End: {window_end_time_sec}, Duration: {duration}")
             window_end_time_sec = min(window_end_time_sec, duration)
+
+            # debug statements
+            print(f"  Window Calc: tta={tta:.2f}, calculated_start_sec={window_start_time_sec:.2f}, calculated_end_sec={window_end_time_sec:.2f}")
+            if window_start_time_sec >= window_end_time_sec:
+                print(f"  ERROR: Invalid window! start_sec >= end_sec for {video_id}. Raising ValueError.")
+                raise ValueError("Cannot define a valid read window.")
+            print(f"  Final Window: start_pts={window_start_time_sec:.2f}s, end_pts={window_end_time_sec:.2f}s")
 
             vframes_tchw_uint8, _, info = tv_io.read_video(
                 video_path, start_pts=window_start_time_sec, end_pts=window_end_time_sec,
@@ -126,6 +148,8 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                 for i in range(self.sequence_length):
                     t_for_label = original_sampled_indices_for_label[i] / fps
                     labels_list[i] = compute_frame_label(t_for_label, alert_time, atol=self.atol_val)
+                    #for debugging
+                    print(f"  Frame {i}: t_for_label={t_for_label:.3f}s, alert_time={alert_time}, label_val={labels_list[i]:.3f}, isclose={np.isclose(t_for_label, alert_time, self.atol_val)}")
 
                 if self.transform: # Apply pre-defined transform (if clip_processor was None)
                     # self.transform expects CHW, but stack needs list of CHW.
