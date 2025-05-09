@@ -73,9 +73,9 @@ def extract_features_single_video_optimized(
     target_device,
     internal_model_batch_size=32
 ):
-    # --- BEGIN EXTRACTOR DEBUG ---
-    print(f"    Extractor DEBUG: Received video_frames_tensor_tchw.shape: {video_frames_tensor_tchw.shape}, dtype: {video_frames_tensor_tchw.dtype}")
-    # --- END EXTRACTOR DEBUG ---
+    # # --- BEGIN EXTRACTOR DEBUG ---
+    # print(f"    Extractor DEBUG: Received video_frames_tensor_tchw.shape: {video_frames_tensor_tchw.shape}, dtype: {video_frames_tensor_tchw.dtype}")
+    # # --- END EXTRACTOR DEBUG ---
 
     if video_frames_tensor_tchw.device.type != target_device: # Should be on target_device already from main script
         video_frames_tensor_tchw = video_frames_tensor_tchw.to(target_device)
@@ -91,14 +91,14 @@ def extract_features_single_video_optimized(
         for i_loop in range(0, num_frames, internal_model_batch_size):
             batch_of_frames_for_processor = video_frames_tensor_tchw[i_loop : i_loop + internal_model_batch_size]
             # --- BEGIN EXTRACTOR LOOP DEBUG ---
-            print(f"      Extractor Loop DEBUG: Processing frame batch {i_loop // internal_model_batch_size + 1}, shape: {batch_of_frames_for_processor.shape}")
+            # print(f"      Extractor Loop DEBUG: Processing frame batch {i_loop // internal_model_batch_size + 1}, shape: {batch_of_frames_for_processor.shape}")
             # --- END EXTRACTOR LOOP DEBUG ---
             
             try:
                 inputs = processor(images=batch_of_frames_for_processor, return_tensors="pt", padding=True)
                 pixel_values = inputs['pixel_values'].to(target_device)
                 # --- MORE EXTRACTOR DEBUG ---
-                print(f"        Extractor DEBUG: Processor output pixel_values.shape: {pixel_values.shape}, dtype: {pixel_values.dtype}")
+                # print(f"        Extractor DEBUG: Processor output pixel_values.shape: {pixel_values.shape}, dtype: {pixel_values.dtype}")
                 # --- END MORE EXTRACTOR DEBUG ---
 
                 model_inputs = {'pixel_values': pixel_values}
@@ -111,7 +111,7 @@ def extract_features_single_video_optimized(
                     image_embeds_batch = outputs.image_embeds if hasattr(outputs, 'image_embeds') else outputs.last_hidden_state[:, 0, :]
                 
                 # --- MORE EXTRACTOR DEBUG ---
-                print(f"        Extractor DEBUG: Model output image_embeds_batch.shape: {image_embeds_batch.shape}, dtype: {image_embeds_batch.dtype}")
+                # print(f"        Extractor DEBUG: Model output image_embeds_batch.shape: {image_embeds_batch.shape}, dtype: {image_embeds_batch.dtype}")
                 # --- END MORE EXTRACTOR DEBUG ---
                 all_image_embeds_list.append(image_embeds_batch.cpu().to(torch.float32))
 
@@ -127,7 +127,7 @@ def extract_features_single_video_optimized(
     try:
         all_features_tensor = torch.cat(all_image_embeds_list, dim=0)
         # --- MORE EXTRACTOR DEBUG ---
-        print(f"    Extractor DEBUG: Concatenated all_features_tensor.shape: {all_features_tensor.shape}")
+        # print(f"    Extractor DEBUG: Concatenated all_features_tensor.shape: {all_features_tensor.shape}")
         # --- END MORE EXTRACTOR DEBUG ---
         return all_features_tensor.numpy()
     except Exception as e_cat:

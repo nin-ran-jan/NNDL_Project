@@ -144,11 +144,11 @@ if __name__ == "__main__":
             # e.g., (30, 3, 720, 1280)
 
             # --- DEBUG PRINTS (use these new variable names for clarity) ---
-            print(f"\n--- MainScript DEBUG for Video ID: {video_id} ---") # video_id is now a string
-            print(f"  frames_batch_tensor_from_loader.shape: {frames_batch_tensor_from_loader.shape}")
-            print(f"  single_video_frames_tensor.shape (after indexing batch): {single_video_frames_tensor.shape}")
-            print(f"  single_video_frames_tensor.dtype: {single_video_frames_tensor.dtype}")
-            print(f"  Expected SEQUENCE_LENGTH for T dim: {SEQUENCE_LENGTH}")
+            # print(f"\n--- MainScript DEBUG for Video ID: {video_id} ---") # video_id is now a string
+            # print(f"  frames_batch_tensor_from_loader.shape: {frames_batch_tensor_from_loader.shape}")
+            # print(f"  single_video_frames_tensor.shape (after indexing batch): {single_video_frames_tensor.shape}")
+            # print(f"  single_video_frames_tensor.dtype: {single_video_frames_tensor.dtype}")
+            # print(f"  Expected SEQUENCE_LENGTH for T dim: {SEQUENCE_LENGTH}")
             # --- END DEBUG PRINTS ---
 
             if single_video_frames_tensor.nelement() == 0 or \
@@ -157,7 +157,7 @@ if __name__ == "__main__":
                 video_features_np = np.array([])
             else:
                 # --- BEGIN DEBUG PRINTS ---
-                print(f"  Calling extract_features_single_video_optimized for {video_id} with frame shape {single_video_frames_tensor.shape}")
+                # print(f"  Calling extract_features_single_video_optimized for {video_id} with frame shape {single_video_frames_tensor.shape}")
                 video_features_np = extract_features_single_video_optimized(
                     video_frames_tensor_tchw=single_video_frames_tensor,
                     model=feature_extraction_model,
@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 )
             
             # --- BEGIN DEBUG PRINTS ---
-            print(f"  Returned video_features_np.shape for {video_id}: {video_features_np.shape if isinstance(video_features_np, np.ndarray) else 'Not a numpy array'}")
+            # print(f"  Returned video_features_np.shape for {video_id}: {video_features_np.shape if isinstance(video_features_np, np.ndarray) else 'Not a numpy array'}")
 
             current_saving_batch_features_list.append(video_features_np)
             current_saving_batch_ids_list.append(video_id)
