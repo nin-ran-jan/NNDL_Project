@@ -28,12 +28,11 @@ CHECKPOINT_PATH_TEMPLATE = os.path.join(CHECKPOINT_DIR, f"ViTTransformer_best_{T
 
 # Model Hyperparameters for ViTTransformer
 VIT_FEATURE_DIM = 768      
-MODEL_DIM = 512            
-N_HEADS = 8                
-NUM_ENCODER_LAYERS = 4     
-DIM_FEEDFORWARD = 1024     
-# !!! SUGGESTION: Experiment with higher dropout rates to reduce overfitting !!!
-DROPOUT = 0.25             # Original: 0.1. Try increasing to 0.2, 0.3, or higher.
+MODEL_DIM =  128           
+N_HEADS =  3               
+NUM_ENCODER_LAYERS = 2     
+DIM_FEEDFORWARD = 640    
+DROPOUT = 0.3
 
 # Training Hyperparameters
 EPOCHS = 50 
@@ -42,7 +41,7 @@ VAL_SPLIT = 0.20
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
 # !!! SUGGESTION: Add weight decay for regularization !!!
-WEIGHT_DECAY = 1e-4        # Original: Not explicitly set (AdamW has some). Try 1e-5, 1e-4, 1e-2.
+WEIGHT_DECAY = 5e-4        # Original: Not explicitly set (AdamW has some). Try 1e-5, 1e-4, 1e-2.
 # --- End Configuration Section ---
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
