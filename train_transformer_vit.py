@@ -29,7 +29,7 @@ CHECKPOINT_PATH_TEMPLATE = os.path.join(CHECKPOINT_DIR, f"ViTTransformer_best_{T
 # Model Hyperparameters for ViTTransformer
 VIT_FEATURE_DIM = 768      
 MODEL_DIM =  128           
-N_HEADS =  3               
+N_HEADS =  4               
 NUM_ENCODER_LAYERS = 2     
 DIM_FEEDFORWARD = 640    
 DROPOUT = 0.3
@@ -149,7 +149,6 @@ print(f"Train dataset size: {len(train_dataset)}")
 print(f"Validation dataset size: {len(val_dataset)}")
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_sequences)
-# !!! It's standard practice to NOT shuffle the validation loader !!!
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_sequences)
 
 # --- Model, Optimizer, Criterion ---
