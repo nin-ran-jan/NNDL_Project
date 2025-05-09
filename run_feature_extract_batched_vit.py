@@ -48,7 +48,7 @@ if __name__ == "__main__":
                                    fps_target=FPS_TARGET, 
                                    sequence_length=SEQUENCE_LENGTH)
         
-        frames_per_video, metadata, labels_per_video = collector.collect()
+        frames_per_video, metadata, labels_per_video = collector.collect_parallel()
         
         # AI prompt: generate helful corrective print statements
         if not frames_per_video:
