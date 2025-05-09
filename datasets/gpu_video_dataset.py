@@ -43,8 +43,8 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         video_path = os.path.join(self.video_dir, f"{video_id}.mp4")
         
         # for debugging
-        print(f"\n--- Debugging Video ID: {video_id} ---")
-        print(f"Raw row data: time_of_event={row.get('time_of_event', 'N/A')}, time_of_alert={row.get('time_of_alert', 'N/A')}")
+        # print(f"\n--- Debugging Video ID: {video_id} ---")
+        # print(f"Raw row data: time_of_event={row.get('time_of_event', 'N/A')}, time_of_alert={row.get('time_of_alert', 'N/A')}")
 
         # Placeholder as uint8, as this is what we'll return for actual frames
         # Processor will resize, so exact placeholder H,W less critical, but use something:
@@ -67,7 +67,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             duration = total_frames_cv / fps if fps > 0 and total_frames_cv > 0 else 0.0
 
             # debug statements
-            print(f"  Metadata: fps={fps:.2f}, duration={duration:.2f}s, total_frames_cv={total_frames_cv}")
+            # print(f"  Metadata: fps={fps:.2f}, duration={duration:.2f}s, total_frames_cv={total_frames_cv}")
             if total_frames_cv == 0:
                 print(f"  ERROR: total_frames_cv is 0 for {video_id}. Raising ValueError.")
                 raise ValueError("Video has 0 frames or is unreadable.")
@@ -82,7 +82,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
 
 
             # debug statements
-            print(f"  Alert Info: alert_time={alert_time}, is_positive={is_positive}")
+            # print(f"  Alert Info: alert_time={alert_time}, is_positive={is_positive}")
 
             if not is_positive:
                 window_start_time_sec = 0.0
@@ -102,11 +102,11 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             window_end_time_sec = min(window_end_time_sec, duration)
 
             # debug statements
-            print(f"  Window Calc: tta={tta:.2f}, calculated_start_sec={window_start_time_sec:.2f}, calculated_end_sec={window_end_time_sec:.2f}")
-            if window_start_time_sec >= window_end_time_sec:
-                print(f"  ERROR: Invalid window! start_sec >= end_sec for {video_id}. Raising ValueError.")
-                raise ValueError("Cannot define a valid read window.")
-            print(f"  Final Window: start_pts={window_start_time_sec:.2f}s, end_pts={window_end_time_sec:.2f}s")
+            # print(f"  Window Calc: tta={tta:.2f}, calculated_start_sec={window_start_time_sec:.2f}, calculated_end_sec={window_end_time_sec:.2f}")
+            # if window_start_time_sec >= window_end_time_sec:
+            #     print(f"  ERROR: Invalid window! start_sec >= end_sec for {video_id}. Raising ValueError.")
+            #     raise ValueError("Cannot define a valid read window.")
+            # print(f"  Final Window: start_pts={window_start_time_sec:.2f}s, end_pts={window_end_time_sec:.2f}s")
 
             vframes_tchw_uint8, _, info = tv_io.read_video(
                 video_path, start_pts=window_start_time_sec, end_pts=window_end_time_sec,
@@ -117,7 +117,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             final_frames_to_return = default_frames_tensor
 
             # debug statements
-            print(f"  tv_io.read_video returned {num_read_frames} frames. Shape: {vframes_tchw_uint8.shape}. Info: {info}")
+            # print(f"  tv_io.read_video returned {num_read_frames} frames. Shape: {vframes_tchw_uint8.shape}. Info: {info}")
 
             final_frames_processed_tensor = default_frames_tensor # Initialize with placeholder
             labels_list = [0.0] * self.sequence_length
@@ -132,17 +132,17 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                 original_sampled_indices_for_label = np.linspace(orig_start_frame_idx, orig_end_frame_idx, self.sequence_length, dtype=int, endpoint=True)
 
                 # debug statements
-                print(f"  Original Sampled Indices (for label calc): {original_sampled_indices_for_label}")
-                print(f"  Calculated atol_val for isclose: {self.atol_val}")
+                # print(f"  Original Sampled Indices (for label calc): {original_sampled_indices_for_label}")
+                # print(f"  Calculated atol_val for isclose: {self.atol_val}")
 
                 for i in range(self.sequence_length):
                     t_for_label = original_sampled_indices_for_label[i] / fps
                     labels_list[i] = compute_frame_label(t_for_label, alert_time, atol=self.atol_val)
                     #for debugging
-                    print(f"  Frame {i}: t_for_label={t_for_label:.3f}s, alert_time={alert_time}, label_val={labels_list[i]:.3f}, isclose={np.isclose(t_for_label, alert_time, self.atol_val)}")
+                    # print(f"  Frame {i}: t_for_label={t_for_label:.3f}s, alert_time={alert_time}, label_val={labels_list[i]:.3f}, isclose={np.isclose(t_for_label, alert_time, self.atol_val)}")
 
                 final_frames_to_return = subsampled_frames_tchw_uint8 # Return uint8 TCHW tensors
-                print(f"  Final labels_list for {video_id} (inside num_read_frames > 0): {[f'{l:.3f}' for l in labels_list]}")
+                # print(f"  Final labels_list for {video_id} (inside num_read_frames > 0): {[f'{l:.3f}' for l in labels_list]}")
             else:
                 print(f"  num_read_frames was NOT > 0 for {video_id}. Labels will be default zeros.")
             
