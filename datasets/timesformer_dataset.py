@@ -15,46 +15,74 @@ def compute_frame_label(t, alert_time, sigma_before=2.0, sigma_after=0.5, atol=0
 
 class HFVideoDataset(torch.utils.data.Dataset):
     def __init__(self, df, video_dir,
-                 hf_processor_name: str, # e.g., "facebook/timesformer-base-finetuned-k400"
-                 num_clip_frames: int,   # Number of frames the HF TimeSformer expects
-                 target_processing_fps: int, # For your windowing and label alignment
+                 hf_processor_name: str,
+                 num_clip_frames: int,
+                 target_processing_fps: int,
                  sequence_window_seconds: float = 10.0):
+        # ... (init attributes as before) ...
         self.df = df.reset_index(drop=True)
         self.video_dir = video_dir
-        self.processor = AutoImageProcessor.from_pretrained(hf_processor_name)
+        try:
+            self.processor = AutoImageProcessor.from_pretrained(hf_processor_name)
+        except Exception as e:
+            print(f"Error loading HuggingFace processor {hf_processor_name}: {e}")
+            print("Please ensure the processor name is correct and you have an internet connection.")
+            raise
         self.num_clip_frames = num_clip_frames
-        self.target_processing_fps = target_processing_fps # Used for your internal frame timing
+        self.target_processing_fps = target_processing_fps
         self.sequence_window_seconds = sequence_window_seconds
         self.atol_val = 1.0 / self.target_processing_fps if self.target_processing_fps > 0 else 0.18
 
+
     def __len__(self):
         return len(self.df)
+
+    def _get_placeholder_pixel_values(self):
+        # Helper to create consistent placeholder
+        proc_size_config = getattr(self.processor, 'size', None)
+        if isinstance(proc_size_config, dict):
+            h = proc_size_config.get('height', proc_size_config.get('shortest_edge', 224))
+            w = proc_size_config.get('width', proc_size_config.get('shortest_edge', 224))
+        elif isinstance(proc_size_config, (int, float)):
+            h = w = int(proc_size_config)
+        else:
+            h = w = 224
+        
+        dummy_frames_for_processor = [np.zeros((h, w, 3), dtype=np.uint8) for _ in range(self.num_clip_frames)]
+        try:
+            # Use do_rescale=False if processor has it, some newer ones handle it via other flags or by default.
+            # This ensures we don't double-scale if we already scaled to [0,1]
+            rescale_arg = {}
+            if 'do_rescale' in self.processor.__init__.__code__.co_varnames: # Check if processor supports do_rescale
+                 rescale_arg['do_rescale'] = False
+
+            processed_output = self.processor(images=dummy_frames_for_processor, return_tensors="pt", **rescale_arg)
+            pixel_values = processed_output["pixel_values"]
+        except Exception as e:
+            print(f"Warning: Processor errored on dummy frames: {e}. Using zero tensor.")
+            pixel_values = torch.zeros(self.num_clip_frames, 3, h, w, dtype=torch.float32)
+
+        # Ensure 4D: (num_clip_frames, C, H, W)
+        if pixel_values.ndim == 5 and pixel_values.shape[0] == 1:
+            pixel_values = pixel_values.squeeze(0)
+        elif pixel_values.ndim == 3 and pixel_values.shape[0] == 3 : # Potentially (C, H, W) for each, stacked makes (T,C,H,W) - this check might be too specific
+            # This case is usually fine if processor output for list is (T,C,H,W)
+            pass
+        
+        # Final check for the expected 4D shape
+        if not (pixel_values.ndim == 4 and pixel_values.shape[0] == self.num_clip_frames and pixel_values.shape[1] == 3):
+            print(f"Warning: Default pixel_values has unexpected shape {pixel_values.shape}. Adjusting to zeros.")
+            pixel_values = torch.zeros(self.num_clip_frames, 3, h, w, dtype=torch.float32)
+            
+        return pixel_values
+
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         video_id = str(row["id"]).zfill(5)
         video_path = os.path.join(self.video_dir, f"{video_id}.mp4")
 
-        # --- Create default/placeholder outputs ---
-        # Determine expected image size from processor if possible, else default
-        proc_size_config = getattr(self.processor, 'size', None)
-        if isinstance(proc_size_config, dict): # Newer HF versions have size as dict
-            # Look for common keys like 'shortest_edge', 'height', 'width'
-            h = proc_size_config.get('height', proc_size_config.get('shortest_edge', 224))
-            w = proc_size_config.get('width', proc_size_config.get('shortest_edge', 224))
-        elif isinstance(proc_size_config, (int, float)): # Older might just have an int
-            h = w = int(proc_size_config)
-        else: # Fallback
-            h = w = 224
-
-        dummy_frames_for_processor = [np.zeros((h, w, 3), dtype=np.uint8) for _ in range(self.num_clip_frames)]
-        try:
-            default_processed_output = self.processor(images=dummy_frames_for_processor, return_tensors="pt", do_rescale=False if hasattr(self.processor, 'do_rescale') else True) # Some processors rescale by default
-            default_pixel_values = default_processed_output["pixel_values"]
-        except Exception: # Fallback if processor errors on zero frames
-            default_pixel_values = torch.zeros(self.num_clip_frames, 3, h, w)
-
-
+        default_pixel_values = self._get_placeholder_pixel_values()
         default_frame_labels = torch.zeros(self.num_clip_frames, dtype=torch.float32)
         default_binary_label = torch.tensor(0.0, dtype=torch.float32)
         return_dict_on_error = {
@@ -65,6 +93,7 @@ class HFVideoDataset(torch.utils.data.Dataset):
         if not os.path.exists(video_path): return return_dict_on_error
 
         try:
+            # ... (video metadata loading, windowing logic - remains the same) ...
             cap = cv2.VideoCapture(video_path)
             original_fps = cap.get(cv2.CAP_PROP_FPS)
             total_original_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -75,16 +104,15 @@ class HFVideoDataset(torch.utils.data.Dataset):
             alert_time_sec = row["time_of_alert"]
             is_positive_event = not pd.isna(alert_time_sec)
 
-            # --- Windowing logic (reuse from your previous dataset) ---
             tta_for_window_end = np.random.uniform(0.5, 1.5)
             window_start_time_sec, window_end_time_sec = 0.0, 0.0
-            if not is_positive_event: # Negative case
+            if not is_positive_event:
                 window_start_time_sec = 0.0
                 window_end_time_sec = min(self.sequence_window_seconds, original_duration_sec)
-            elif alert_time_sec < self.sequence_window_seconds: # Positive, alert early
+            elif alert_time_sec < self.sequence_window_seconds:
                 window_start_time_sec = 0.0
                 window_end_time_sec = min(self.sequence_window_seconds, original_duration_sec)
-            else: # Positive, alert later
+            else:
                 window_end_time_sec = min(alert_time_sec + tta_for_window_end, original_duration_sec)
                 window_start_time_sec = max(0.0, window_end_time_sec - self.sequence_window_seconds)
 
@@ -94,7 +122,6 @@ class HFVideoDataset(torch.utils.data.Dataset):
                 if window_start_time_sec >= window_end_time_sec: raise ValueError(f"Cannot define valid read window for {video_id}")
             window_end_time_sec = min(window_end_time_sec, original_duration_sec)
 
-            # --- Read video segment (TCHW uint8) ---
             vframes_segment_tchw_uint8, _, info = tv_io.read_video(
                 video_path, start_pts=window_start_time_sec, end_pts=window_end_time_sec,
                 pts_unit='sec', output_format="TCHW"
@@ -102,24 +129,45 @@ class HFVideoDataset(torch.utils.data.Dataset):
             num_read_frames_in_segment = vframes_segment_tchw_uint8.shape[0]
             if num_read_frames_in_segment == 0: raise ValueError(f"Read 0 frames from segment for {video_id}")
 
-            # --- Uniformly sample `self.num_clip_frames` from the read segment ---
             if num_read_frames_in_segment < self.num_clip_frames:
                 indices_to_sample = np.pad(np.arange(num_read_frames_in_segment),
                                            (0, self.num_clip_frames - num_read_frames_in_segment), 'edge')
             else:
                 indices_to_sample = np.linspace(0, num_read_frames_in_segment - 1, self.num_clip_frames, dtype=int, endpoint=True)
             sampled_frames_tchw_uint8 = vframes_segment_tchw_uint8[indices_to_sample]
-
-            # --- Convert to list of HWC NumPy arrays for Hugging Face processor ---
             frames_for_processor = [frame.permute(1, 2, 0).numpy() for frame in sampled_frames_tchw_uint8]
 
             # --- Process with Hugging Face processor ---
-            processed_output = self.processor(images=frames_for_processor, return_tensors="pt", do_rescale=False if hasattr(self.processor, 'do_rescale') else True)
-            pixel_values = processed_output["pixel_values"] # Expected: (T_clip, C, H, W)
+            # Check if processor expects rescaling or if frames are already [0,1]
+            # ViTImageProcessor by default rescales unless do_rescale=False
+            # Your original code had `do_rescale=False if hasattr(self.processor, 'do_rescale') else True`
+            # If your frames_for_processor are uint8 (0-255), then do_rescale=True (default) is fine.
+            # If they were already float [0,1], then do_rescale=False.
+            # Since frames_for_processor are from uint8, default rescaling is usually okay.
+            processed_output = self.processor(images=frames_for_processor, return_tensors="pt")
+            pixel_values = processed_output["pixel_values"]
 
-            # --- Generate frame labels for the `self.num_clip_frames` ---
+            # **Crucial Shape Correction:**
+            # Ensure pixel_values is 4D: (num_clip_frames, C, H, W)
+            if pixel_values.ndim == 5 and pixel_values.shape[0] == 1:
+                # This happens if the processor treats the list of frames as a batch of one video
+                pixel_values = pixel_values.squeeze(0)
+            elif pixel_values.ndim == 3 and pixel_values.shape[0] == 3: # If it returned (C,H,W) per frame and they got stacked to (T,C,H,W)
+                 # This condition might be too specific; standard HF processors for lists of images usually return (N, C, H, W)
+                 pass # This means pixel_values is already (T, C, H, W)
+            
+            # After potential squeeze, verify the shape is as expected for a single item (4D)
+            if not (pixel_values.ndim == 4 and \
+                    pixel_values.shape[0] == self.num_clip_frames and \
+                    pixel_values.shape[1] == 3): # Assuming 3 channels
+                error_shape = pixel_values.shape
+                # Fallback or raise error if shape is still not right
+                print(f"Warning: Video ID {video_id}, corrected pixel_values shape {error_shape} is still unexpected. Using placeholder.")
+                pixel_values = default_pixel_values # Fallback to a consistently shaped placeholder
+
+            # ... (frame label generation - remains the same) ...
             fps_of_read_segment = info.get("video_fps", original_fps)
-            if fps_of_read_segment <= 0: fps_of_read_segment = self.target_processing_fps # Fallback
+            if fps_of_read_segment <= 0: fps_of_read_segment = self.target_processing_fps
 
             timestamps_for_read_segment_frames_sec = window_start_time_sec + (np.arange(num_read_frames_in_segment) / fps_of_read_segment)
             selected_original_timestamps_sec = timestamps_for_read_segment_frames_sec[indices_to_sample]
@@ -135,7 +183,7 @@ class HFVideoDataset(torch.utils.data.Dataset):
                 "binary_label": binary_label, "video_id": video_id, "is_valid": torch.tensor(True)
             }
         except Exception as e:
-            # print(f"ERROR processing {video_id}: {e}") # Reduce verbosity for production
+            # print(f"ERROR processing {video_id}: {type(e).__name__} - {e}") # Be careful with too much printing in __getitem__
             return return_dict_on_error
 
 # Your collate_fn_hf_videos (from previous thought process) can be reused here.
