@@ -65,7 +65,6 @@ if __name__ == "__main__":
     # df = df.head(10) # For quick testing
 
     num_total_videos = len(df)
-    num_output_saving_batches = (num_total_videos + SAVE_INTERVAL_VIDEOS - 1) // SAVE_INTERVAL_VIDEOS
 
     # --- Save Run Metadata ---
     run_metadata = {
@@ -120,34 +119,42 @@ if __name__ == "__main__":
     current_saving_batch_ids_list = []
 
     for batch_data in tqdm(test_video_dataloader, desc="Processing Test Videos"):
-        # Handle output from DataLoader based on batch_size and collate_fn
-        if VIDEO_LOADER_BATCH_SIZE == 1 and actual_collate_fn is None:
-            # batch_data is the single item: (video_id_str, frames_tensor_tchw_uint8)
-            video_ids_in_batch = [batch_data[0]]
-            frames_batch_tensor = batch_data[1].unsqueeze(0) # Add batch dim: (1, T, C, H, W)
-        else: # Assumes collate_fn is used (e.g. for B > 1)
-            video_ids_in_batch, frames_batch_tensor = batch_data # (list_of_ids, (B, T, C, H, W))
+        # batch_data from DataLoader (with B=1, default_collate) is:
+        # ( [video_id_str], frames_tensor_with_batch_dim_of_1 )
+        # e.g., ( ['00204'], torch.Size([1, 30, 3, 720, 1280]) )
         
-        # Move frame data to target device for feature extraction
-        frames_batch_tensor = frames_batch_tensor.to(TARGET_DEVICE)
+        video_ids_list_from_batch = batch_data[0]  # This is a list of video IDs, e.g., ['00204']
+        frames_batch_tensor_from_loader = batch_data[1]   # This is the tensor (1, SEQUENCE_LENGTH, C, H, W)
 
-        for i in range(len(video_ids_in_batch)):
-            video_id = video_ids_in_batch[i]
-            # Get frames for a single video: (T, C, H, W), uint8, already on TARGET_DEVICE
-            single_video_frames_tensor = frames_batch_tensor[i] 
+        # The if/else for VIDEO_LOADER_BATCH_SIZE is not needed here if collate_fn handles B > 1 correctly
+        # or if we always assume B=1 for this specific logic.
+        # For clarity, let's assume B=1 for now as per VIDEO_LOADER_BATCH_SIZE = 1.
 
-            # --- BEGIN DEBUG PRINTS ---
-            print(f"\n--- MainScript DEBUG for Video ID: {video_id} ---")
-            print(f"  single_video_frames_tensor.shape: {single_video_frames_tensor.shape}")
+        # Move the whole batch of frames (even if batch size is 1) to the target device
+        frames_batch_tensor_on_device = frames_batch_tensor_from_loader.to(TARGET_DEVICE)
+
+        # Iterate through the items in this batch (will be 1 iteration if VIDEO_LOADER_BATCH_SIZE = 1)
+        for i_in_batch in range(len(video_ids_list_from_batch)):
+            video_id = video_ids_list_from_batch[i_in_batch] # This will be the string '00204'
+            
+            # Extract the frames for the single video by indexing the batch dimension
+            # This removes the batch dimension of size 1.
+            single_video_frames_tensor = frames_batch_tensor_on_device[i_in_batch] 
+            # Now, single_video_frames_tensor should have shape (SEQUENCE_LENGTH, C, H, W)
+            # e.g., (30, 3, 720, 1280)
+
+            # --- DEBUG PRINTS (use these new variable names for clarity) ---
+            print(f"\n--- MainScript DEBUG for Video ID: {video_id} ---") # video_id is now a string
+            print(f"  frames_batch_tensor_from_loader.shape: {frames_batch_tensor_from_loader.shape}")
+            print(f"  single_video_frames_tensor.shape (after indexing batch): {single_video_frames_tensor.shape}")
             print(f"  single_video_frames_tensor.dtype: {single_video_frames_tensor.dtype}")
-            print(f"  single_video_frames_tensor.nelement(): {single_video_frames_tensor.nelement()}")
-            print(f"  Expected SEQUENCE_LENGTH: {SEQUENCE_LENGTH}")
+            print(f"  Expected SEQUENCE_LENGTH for T dim: {SEQUENCE_LENGTH}")
             # --- END DEBUG PRINTS ---
 
             if single_video_frames_tensor.nelement() == 0 or \
-               single_video_frames_tensor.shape[0] != SEQUENCE_LENGTH: # Check for empty or malformed
-                print(f"  Warning: Insufficient/empty frames for test video {video_id}. Appending empty features.")
-                video_features_np = np.array([]) # Placeholder for problematic video
+               single_video_frames_tensor.shape[0] != SEQUENCE_LENGTH: # Now this check should be correct
+                print(f"  WARNING: Insufficient/empty frames for test video {video_id} (shape: {single_video_frames_tensor.shape}). Appending empty features.")
+                video_features_np = np.array([])
             else:
                 # --- BEGIN DEBUG PRINTS ---
                 print(f"  Calling extract_features_single_video_optimized for {video_id} with frame shape {single_video_frames_tensor.shape}")
@@ -191,7 +198,7 @@ if __name__ == "__main__":
     # Consolidate any final remaining items if the loop finished mid-batch (already handled by main condition)
     # No, need a final check if loop finishes and lists are not empty but count not % interval
     if current_saving_batch_ids_list: # If there are any leftovers
-        final_batch_num = num_output_saving_batches # Should be the last batch number
+        final_batch_num = (num_total_videos + SAVE_INTERVAL_VIDEOS - 1) // SAVE_INTERVAL_VIDEOS # Should be the last batch number
         print(f"\nSaving Final Output Batch {final_batch_num} ({len(current_saving_batch_ids_list)} videos)...")
         batch_file_suffix = f"saving_batch_{final_batch_num}"
         save_path_features = os.path.join(feature_save_dir, f"test_features_{batch_file_suffix}.npy")
