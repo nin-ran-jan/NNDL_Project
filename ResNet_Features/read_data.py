@@ -1,7 +1,7 @@
 import numpy as np
 
-TIMESTAMP = "0305050051"
-MODE = "test"
+TIMESTAMP = "0305002759"
+MODE = "train"
 
 features = np.load(f"ResNet_Features/{MODE}_features_{TIMESTAMP}.npy", allow_pickle=True)
 if MODE == "train":
@@ -13,4 +13,4 @@ if MODE == "train":
 
 print("First feature vector:", features[0].shape)
 if MODE == "train":
-    print("First label:", labels[0])
+    print("First label:", labels[:10])

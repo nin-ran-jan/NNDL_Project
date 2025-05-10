@@ -53,7 +53,8 @@ class FrameCollector:
                 window_start = 0.0
                 window_end = min(10.0, duration)
             else:
-                window_end = min(alert_time + tta, duration)
+                # window_end = min(alert_time + tta, duration)
+                window_end = min(event_time - tta, duration) # Kaushal's suggestion
                 window_start = max(0.0, window_end - 10.0)
 
             start_frame = int(window_start * fps)
