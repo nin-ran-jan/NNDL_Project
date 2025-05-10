@@ -1,308 +1,298 @@
-# hf_timesformer_pipeline/train_hf_timesformer.py
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
+from transformers.optimization import get_cosine_schedule_with_warmup, get_linear_schedule_with_warmup
 import numpy as np
 import os
 import pandas as pd
 import time
 import json
 from tqdm import tqdm
-import sys # For path manipulation if needed
 
-# Ensure the custom modules can be imported
-# If train_hf_timesformer.py is in hf_timesformer_pipeline/
-# and datasets/models are subdirectories:
-# Option 1: Add parent directory to path (if running script directly from its location)
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# parent_dir = os.path.dirname(current_dir) # If script is one level down from project root
-# sys.path.append(parent_dir) # Add project root to allow imports like from datasets.hf_video_dataset
-
-# Option 2: Assume Python's import resolution handles it (e.g. if hf_timesformer_pipeline is a package or in PYTHONPATH)
 from datasets.timesformer_dataset import HFVideoDataset, collate_fn_hf_videos
 from models.custom_timesformer import HFCustomTimeSformer
+# utils.video_transforms_augmented is used within HFVideoDataset
 
 # --- Configuration ---
-# Path Configuration
-BASE_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__)) # Assumes script is in hf_timesformer_pipeline
-BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "./nexar-collision-prediction") # Adjust if your data is elsewhere
+BASE_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "nexar-collision-prediction")
 TRAIN_CSV_PATH = os.path.join(BASE_DATA_DIR, "train.csv")
 TRAIN_VIDEO_DIR = os.path.join(BASE_DATA_DIR, "train")
 
-# Run Configuration
 TRAIN_RUN_TIMESTAMP = time.strftime("%Y%m%d_%H%M%S")
 CHECKPOINT_SUBDIR = f"run_{TRAIN_RUN_TIMESTAMP}"
 CHECKPOINT_DIR = os.path.join(BASE_PROJECT_DIR, "checkpoints_hf", CHECKPOINT_SUBDIR)
 
-# Hugging Face Model & Processor Configuration
-HF_PROCESSOR_NAME = "facebook/timesformer-base-finetuned-k400" # Or specific processor for your model
-HF_MODEL_NAME = "facebook/timesformer-base-finetuned-k400"     # Or just "facebook/timesformer-base"
-BACKBONE_FEATURE_DIM = 768 # For "base" TimeSformer models (e.g., ViT-B). Check model card for others.
+HF_PROCESSOR_NAME = "facebook/timesformer-base-finetuned-k400"
+HF_MODEL_NAME = "facebook/timesformer-base-finetuned-k400"
+BACKBONE_FEATURE_DIM = 768 # For "base" TimeSformer (actual dim taken from model.config later)
 
-# Dataset & DataLoader Parameters
-NUM_CLIP_FRAMES = 8        # Number of frames per clip. TimeSformer base often uses 8. HR (High Resolution) might use more.
-TARGET_PROCESSING_FPS = 3  # Your internal FPS for windowing logic & label alignment
-SEQUENCE_WINDOW_SECONDS = 10.0 # Duration of the video segment from which the clip is sampled
+NUM_CLIP_FRAMES = 8
+TARGET_PROCESSING_FPS = 3
+SEQUENCE_WINDOW_SECONDS = 10.0
+AUGMENTATION_SPATIAL_SIZE = (224, 224) # For RandomResizedCrop etc. in augmentation
 
-# Training Hyperparameters
-BATCH_SIZE = 4             # Adjust based on GPU memory. Start small (4 or 8).
-EPOCHS = 30
-LEARNING_RATE = 3e-5       # Common starting LR for fine-tuning HF transformer models
-WEIGHT_DECAY = 1e-4
-ALPHA_LOSS = 0.5           # Weight for combining frame and sequence loss
-SCHEDULER_PATIENCE = 3
-SCHEDULER_FACTOR = 0.2
-GRADIENT_CLIP_VAL = 1.0    # Max norm for gradient clipping
+BATCH_SIZE = 6 
+EPOCHS = 30 # Total epochs
+LEARNING_RATE = 3e-5 # Initial LR
+WEIGHT_DECAY = 1e-3 # Increased weight decay
+ALPHA_LOSS = 0.5
+GRADIENT_CLIP_VAL = 1.0
+DROPOUT_RATE = 0.3 # Dropout for custom heads
 
-# Reproducibility
+# New Training Strategy Configs
+FREEZE_BACKBONE_EPOCHS = 3 # Number of epochs to train with backbone frozen (0 to disable)
+UNFREEZE_LR_FACTOR = 0.1 # Factor to reduce LR when unfreezing backbone (e.g., LR * 0.1)
+SCHEDULER_TYPE = "CosineAnnealing" # "ReduceLROnPlateau" or "CosineAnnealing" or "LinearWarmup"
+R_PLATEAU_PATIENCE = 3 # For ReduceLROnPlateau
+R_PLATEAU_FACTOR = 0.2 # For ReduceLROnPlateau
+COSINE_T_MAX_RATIO = 1.0 # Ratio of total steps for CosineAnnealing T_max (1.0 means T_max = total_steps)
+WARMUP_STEPS_RATIO = 0.1 # Ratio of total steps for warmup (if using LinearWarmup or Cosine with warmup)
+
+EARLY_STOPPING_PATIENCE = 7 # Stop if val_loss doesn't improve for this many epochs
+
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
-
-# DataLoader Workers
-DATALOADER_NUM_WORKERS = min(os.cpu_count() // 2 if os.cpu_count() else 0, 4) # Keep it modest to avoid issues
+if torch.cuda.is_available(): torch.cuda.manual_seed_all(SEED)
+DATALOADER_NUM_WORKERS = min(os.cpu_count() // 2 if os.cpu_count() else 0, 4)
 
 def main():
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    print(f"--- Experiment Configuration ---")
-    print(f"Timestamp: {TRAIN_RUN_TIMESTAMP}")
+    # ... (print config section from previous train script) ...
+    config_summary = { # Save all key parameters
+        # ... (all parameters from above) ...
+        "HF_PROCESSOR_NAME": HF_PROCESSOR_NAME, "HF_MODEL_NAME": HF_MODEL_NAME,
+        "NUM_CLIP_FRAMES": NUM_CLIP_FRAMES, "TARGET_PROCESSING_FPS": TARGET_PROCESSING_FPS,
+        "BATCH_SIZE": BATCH_SIZE, "EPOCHS": EPOCHS, "LEARNING_RATE": LEARNING_RATE,
+        "WEIGHT_DECAY": WEIGHT_DECAY, "ALPHA_LOSS": ALPHA_LOSS, "DROPOUT_RATE": DROPOUT_RATE,
+        "FREEZE_BACKBONE_EPOCHS": FREEZE_BACKBONE_EPOCHS, "UNFREEZE_LR_FACTOR": UNFREEZE_LR_FACTOR,
+        "SCHEDULER_TYPE": SCHEDULER_TYPE, "EARLY_STOPPING_PATIENCE": EARLY_STOPPING_PATIENCE,
+        "GRADIENT_CLIP_VAL": GRADIENT_CLIP_VAL, "SEED": SEED
+    }
+    with open(os.path.join(CHECKPOINT_DIR, "run_config.json"), "w") as f:
+        json.dump(config_summary, f, indent=4)
+    print(f"Saved run configuration to {os.path.join(CHECKPOINT_DIR, 'run_config.json')}")
     print(f"Using device: {device}")
-    print(f"Checkpoint Directory: {CHECKPOINT_DIR}")
-    print(f"Hugging Face Processor: {HF_PROCESSOR_NAME}")
-    print(f"Hugging Face Model: {HF_MODEL_NAME}")
-    print(f"Num Clip Frames: {NUM_CLIP_FRAMES}")
-    print(f"Batch Size: {BATCH_SIZE}")
-    print(f"Epochs: {EPOCHS}")
-    print(f"Learning Rate: {LEARNING_RATE}")
-    print(f"Num Workers: {DATALOADER_NUM_WORKERS}")
-    print(f"-------------------------------")
 
-    # Handle multiprocessing start method for CUDA
+
     if DATALOADER_NUM_WORKERS > 0 and device == 'cuda':
+        # ... (multiprocessing start method logic) ...
         current_start_method = torch.multiprocessing.get_start_method(allow_none=True)
         if current_start_method != 'spawn':
-            try:
-                torch.multiprocessing.set_start_method('spawn', force=True)
-                print("Set PyTorch multiprocessing start method to 'spawn'.")
-            except RuntimeError as e:
-                print(f"Warning: Could not set start method to 'spawn': {e}. Using default: {current_start_method}")
+            try: torch.multiprocessing.set_start_method('spawn', force=True); print("Set mp start method to spawn.")
+            except RuntimeError as e: print(f"Warning: Could not set start method to 'spawn': {e}")
 
-    # --- Load Data ---
-    try:
-        df_full = pd.read_csv(TRAIN_CSV_PATH)
-    except FileNotFoundError:
-        print(f"ERROR: Training CSV not found at {TRAIN_CSV_PATH}")
-        return
+    df_full = pd.read_csv(TRAIN_CSV_PATH)
     df_full["id"] = df_full["id"].astype(str).str.zfill(5)
-    # For quick debugging:
-    # df_full = df_full.sample(n=min(200, len(df_full)), random_state=SEED).reset_index(drop=True)
-    # print(f"Using a subset of {len(df_full)} samples for debugging.")
+    # df_full = df_full.sample(n=min(100, len(df_full)), random_state=SEED).reset_index(drop=True) # Debug subset
 
-
-    # --- Datasets and DataLoaders ---
-    print("Initializing datasets...")
-    full_dataset = HFVideoDataset(
-        df=df_full,
-        video_dir=TRAIN_VIDEO_DIR,
-        hf_processor_name=HF_PROCESSOR_NAME,
-        num_clip_frames=NUM_CLIP_FRAMES,
-        target_processing_fps=TARGET_PROCESSING_FPS,
-        sequence_window_seconds=SEQUENCE_WINDOW_SECONDS
+    # --- Datasets with Augmentation ---
+    print("Initializing datasets with augmentations...")
+    train_dataset_full = HFVideoDataset(
+        df=df_full, video_dir=TRAIN_VIDEO_DIR, hf_processor_name=HF_PROCESSOR_NAME,
+        num_clip_frames=NUM_CLIP_FRAMES, target_processing_fps=TARGET_PROCESSING_FPS,
+        sequence_window_seconds=SEQUENCE_WINDOW_SECONDS, is_train=True, # Enable train augmentations
+        augmentation_spatial_size=AUGMENTATION_SPATIAL_SIZE
     )
+    # For validation, use a dataset instance with is_train=False
+    val_dataset_full = HFVideoDataset(
+        df=df_full, video_dir=TRAIN_VIDEO_DIR, hf_processor_name=HF_PROCESSOR_NAME,
+        num_clip_frames=NUM_CLIP_FRAMES, target_processing_fps=TARGET_PROCESSING_FPS,
+        sequence_window_seconds=SEQUENCE_WINDOW_SECONDS, is_train=False, # Disable train augmentations for val
+        augmentation_spatial_size=AUGMENTATION_SPATIAL_SIZE # Usually eval uses center crop of this
+    )
+    
+    val_split_ratio = 0.15
+    val_size = int(val_split_ratio * len(train_dataset_full))
+    train_size = len(train_dataset_full) - val_size
+    if train_size == 0 or val_size == 0: print("ERROR: Dataset too small for splitting."); return
 
-    # Splitting dataset (ensure transforms are applied after split if they differ)
-    val_split_ratio = 0.15 # Use a fixed validation split ratio
-    val_size = int(val_split_ratio * len(full_dataset))
-    train_size = len(full_dataset) - val_size
-    
-    if train_size == 0 or val_size == 0:
-        print(f"ERROR: Dataset too small for splitting. Train size: {train_size}, Val size: {val_size}. Exiting.")
-        return
-        
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size],
-                                           generator=torch.Generator().manual_seed(SEED))
-    
+    # Create subsets using indices from the original df_full to ensure val set uses val_transforms
+    indices = list(range(len(train_dataset_full)))
+    np.random.shuffle(indices) # Shuffle once for consistent split
+    train_indices, val_indices = indices[val_size:], indices[:val_size]
+
+    train_dataset = torch.utils.data.Subset(train_dataset_full, train_indices)
+    val_dataset = torch.utils.data.Subset(val_dataset_full, val_indices) # Uses val_dataset_full with is_train=False
+
     print(f"Train dataset size: {len(train_dataset)}")
     print(f"Validation dataset size: {len(val_dataset)}")
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                               num_workers=DATALOADER_NUM_WORKERS, collate_fn=collate_fn_hf_videos,
                               pin_memory=True if device == 'cuda' else False,
-                              persistent_workers=True if DATALOADER_NUM_WORKERS > 0 else False,
-                              drop_last=True) # Drop last incomplete batch for stability
+                              persistent_workers=True if DATALOADER_NUM_WORKERS > 0 else False, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False,
                             num_workers=DATALOADER_NUM_WORKERS, collate_fn=collate_fn_hf_videos,
                             pin_memory=True if device == 'cuda' else False,
                             persistent_workers=True if DATALOADER_NUM_WORKERS > 0 else False)
 
-    # --- Model ---
     print("Initializing model...")
     model = HFCustomTimeSformer(
         hf_model_name=HF_MODEL_NAME,
         num_frames_input_clip=NUM_CLIP_FRAMES,
-        backbone_feature_dim=BACKBONE_FEATURE_DIM,
-        pretrained=True
+        backbone_feature_dim_config=BACKBONE_FEATURE_DIM, # Initial guess, model will use its actual
+        pretrained=True,
+        dropout_rate=DROPOUT_RATE,
+        freeze_backbone=(FREEZE_BACKBONE_EPOCHS > 0) # Freeze if FREEZE_BACKBONE_EPOCHS is positive
     ).to(device)
-    
-    # Optional: Compile the model for potential speedup (PyTorch 2.0+)
-    # try:
-    #     model = torch.compile(model)
-    #     print("Model compiled successfully.")
-    # except Exception as e:
-    #     print(f"Model compilation failed: {e}. Using uncompiled model.")
-
+    print(f"Model actual backbone feature dim: {model.backbone_actual_feature_dim}")
 
     # --- Optimizer, Scheduler, Criterion ---
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=SCHEDULER_FACTOR, patience=SCHEDULER_PATIENCE)
+    # Initially, optimizer for potentially only the head
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+    optimizer = optim.AdamW(trainable_params, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    
+    total_steps = len(train_loader) * EPOCHS
+    num_warmup_steps = int(WARMUP_STEPS_RATIO * total_steps) if SCHEDULER_TYPE in ["CosineAnnealing", "LinearWarmup"] else 0
 
-    # Using BCEWithLogitsLoss as it's more numerically stable. Model should output raw logits.
-    criterion_frame = nn.BCEWithLogitsLoss(reduction='mean') # Already averages over all elements if not 'none'
+
+    if SCHEDULER_TYPE == "ReduceLROnPlateau":
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE, verbose=True)
+    elif SCHEDULER_TYPE == "CosineAnnealing":
+        t_max_steps = int(COSINE_T_MAX_RATIO * total_steps)
+        scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_max_steps)
+        print(f"Using CosineAnnealing scheduler with {num_warmup_steps} warmup steps and T_max={t_max_steps} total steps.")
+    elif SCHEDULER_TYPE == "LinearWarmup":
+        scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps)
+        print(f"Using LinearWarmup scheduler with {num_warmup_steps} warmup steps and {total_steps} total steps.")
+    else:
+        scheduler = None # No scheduler or default
+        print("No specific LR scheduler or invalid type specified.")
+
+
+    criterion_frame = nn.BCEWithLogitsLoss(reduction='mean')
     criterion_binary = nn.BCEWithLogitsLoss()
 
     best_val_loss = float("inf")
+    epochs_no_improve = 0
     training_log = []
+    backbone_is_frozen = (FREEZE_BACKBONE_EPOCHS > 0)
 
     print("Starting training...")
-    # --- Training Loop ---
     for epoch in range(EPOCHS):
-        model.train()
-        running_train_loss = 0.0
-        total_train_batches = 0
+        # --- Backbone Unfreezing Logic ---
+        if backbone_is_frozen and epoch >= FREEZE_BACKBONE_EPOCHS:
+            model.unfreeze_backbone()
+            backbone_is_frozen = False
+            print(f"Backbone unfrozen at epoch {epoch + 1}. Re-initializing optimizer with new LR.")
+            # Re-initialize optimizer with all parameters and potentially adjusted LR
+            new_lr = LEARNING_RATE * (UNFREEZE_LR_FACTOR if UNFREEZE_LR_FACTOR > 0 else 1.0)
+            optimizer = optim.AdamW(model.parameters(), lr=new_lr, weight_decay=WEIGHT_DECAY)
+            print(f"Optimizer re-initialized. New LR for full model: {new_lr:.2e}")
+            # Re-initialize scheduler with the new optimizer
+            if SCHEDULER_TYPE == "ReduceLROnPlateau":
+                scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE, verbose=True)
+            elif SCHEDULER_TYPE == "CosineAnnealing": # Recalculate remaining steps
+                remaining_epochs = EPOCHS - epoch
+                remaining_steps = len(train_loader) * remaining_epochs
+                current_warmup_steps = max(0, num_warmup_steps - (len(train_loader) * epoch)) # Adjust warmup if unfreezing happens mid-warmup
+                scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=current_warmup_steps, num_training_steps=remaining_steps)
+            elif SCHEDULER_TYPE == "LinearWarmup":
+                remaining_epochs = EPOCHS - epoch
+                remaining_steps = len(train_loader) * EPOCHS # Total steps for linear decay should be total training steps
+                current_total_steps_done = len(train_loader) * epoch
+                # The num_training_steps for get_linear_schedule_with_warmup is the *total* number of steps, not remaining.
+                # So, re-initializing it might reset its state. It's often better to let it run with the initial optimizer,
+                # but if optimizer params change, it needs re-init.
+                # For simplicity, let's re-init, assuming warmup is likely done.
+                current_warmup_steps = max(0, num_warmup_steps - current_total_steps_done)
+                scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=current_warmup_steps, num_training_steps=total_steps)
 
+
+        model.train()
+        running_train_loss = 0.0; total_train_batches = 0
         progress_bar_train = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Train]", unit="batch", leave=False)
         for batch_idx, batch in enumerate(progress_bar_train):
-            if batch is None: # Handle empty batches from collate_fn
-                print(f"Warning: Skipping empty batch {batch_idx+1}/{len(train_loader)} in training.")
-                continue
-
+            # ... (training batch loop from previous train script: pixel_values, labels, optimizer.zero_grad(), model forward, loss, backward, step)
+            if batch is None: continue
             pixel_values = batch["pixel_values"].to(device)
             frame_labels = batch["frame_labels"].to(device)
             binary_labels = batch["binary_label"].to(device)
-
             optimizer.zero_grad()
-
-            frame_logits, seq_logits = model(pixel_values) # Model outputs raw logits
-
+            frame_logits, seq_logits = model(pixel_values)
             loss_binary = criterion_binary(seq_logits, binary_labels)
             loss_frame = criterion_frame(frame_logits, frame_labels)
-
             combined_loss = ALPHA_LOSS * loss_frame + (1 - ALPHA_LOSS) * loss_binary
-            
             combined_loss.backward()
-            if GRADIENT_CLIP_VAL > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=GRADIENT_CLIP_VAL)
+            if GRADIENT_CLIP_VAL > 0: torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=GRADIENT_CLIP_VAL)
             optimizer.step()
+            if SCHEDULER_TYPE in ["CosineAnnealing", "LinearWarmup"] and scheduler: # Step per batch for these
+                 scheduler.step()
 
-            running_train_loss += combined_loss.item()
-            total_train_batches += 1
+            running_train_loss += combined_loss.item(); total_train_batches += 1
             progress_bar_train.set_postfix(loss=running_train_loss/total_train_batches if total_train_batches > 0 else 0.0)
-        
+
         avg_train_loss = running_train_loss / total_train_batches if total_train_batches > 0 else 0.0
 
         # --- Validation Loop ---
         model.eval()
-        running_val_loss = 0.0
-        total_val_batches = 0
+        running_val_loss = 0.0; total_val_batches = 0
         progress_bar_val = tqdm(val_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Val]", unit="batch", leave=False)
-
         with torch.no_grad():
             for batch in progress_bar_val:
-                if batch is None:
-                    print(f"Warning: Skipping empty batch in validation.")
-                    continue
+                # ... (validation batch loop from previous train script: pixel_values, labels, model forward, loss)
+                if batch is None: continue
                 pixel_values = batch["pixel_values"].to(device)
                 frame_labels = batch["frame_labels"].to(device)
                 binary_labels = batch["binary_label"].to(device)
-
                 frame_logits, seq_logits = model(pixel_values)
-
                 loss_binary_val = criterion_binary(seq_logits, binary_labels)
                 loss_frame_val = criterion_frame(frame_logits, frame_labels)
-
                 combined_loss_val = ALPHA_LOSS * loss_frame_val + (1 - ALPHA_LOSS) * loss_binary_val
-                
-                running_val_loss += combined_loss_val.item()
-                total_val_batches +=1
+                running_val_loss += combined_loss_val.item(); total_val_batches +=1
                 progress_bar_val.set_postfix(loss=running_val_loss/total_val_batches if total_val_batches > 0 else 0.0)
 
         avg_val_loss = running_val_loss / total_val_batches if total_val_batches > 0 else 0.0
         current_lr = optimizer.param_groups[0]['lr']
-        
         print(f"Epoch {epoch+1}/{EPOCHS} - Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | LR: {current_lr:.2e}")
 
-        epoch_log = {
-            "epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss,
-            "lr": current_lr
-        }
+        epoch_log = {"epoch": epoch + 1, "train_loss": avg_train_loss, "val_loss": avg_val_loss, "lr": current_lr}
         training_log.append(epoch_log)
-        with open(os.path.join(CHECKPOINT_DIR, "training_log.jsonl"), "a") as f:
-            f.write(json.dumps(epoch_log) + "\n")
+        with open(os.path.join(CHECKPOINT_DIR, "training_log.jsonl"), "a") as f: f.write(json.dumps(epoch_log) + "\n")
 
-        scheduler.step(avg_val_loss)
-
+        if SCHEDULER_TYPE == "ReduceLROnPlateau" and scheduler:
+            scheduler.step(avg_val_loss)
+        
+        # Checkpointing and Early Stopping
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
+            epochs_no_improve = 0
             checkpoint_path = os.path.join(CHECKPOINT_DIR, f"model_best.pth")
+            # ... (save checkpoint logic from previous train script, include config_summary) ...
             torch.save({
-                'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(), # Or model.module.state_dict() if using DataParallel/DDP or torch.compile
+                'epoch': epoch + 1, 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'best_val_loss': best_val_loss,
-                'config': { # Save key config params for reproducibility
-                    "HF_MODEL_NAME": HF_MODEL_NAME, "HF_PROCESSOR_NAME": HF_PROCESSOR_NAME,
-                    "NUM_CLIP_FRAMES": NUM_CLIP_FRAMES, "BACKBONE_FEATURE_DIM": BACKBONE_FEATURE_DIM,
-                    "LEARNING_RATE": LEARNING_RATE, "BATCH_SIZE": BATCH_SIZE, "ALPHA_LOSS": ALPHA_LOSS,
-                }
+                'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                'best_val_loss': best_val_loss, 'config': config_summary
             }, checkpoint_path)
             print(f"Saved new best model to {checkpoint_path} (Val Loss: {best_val_loss:.4f})")
-        
-        # Save latest checkpoint
+        else:
+            epochs_no_improve += 1
+
+        # Save latest model
         latest_checkpoint_path = os.path.join(CHECKPOINT_DIR, "model_latest.pth")
-        torch.save({
-                'epoch': epoch + 1, 'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(), 'scheduler_state_dict': scheduler.state_dict(),
-                'best_val_loss': best_val_loss, 'current_val_loss': avg_val_loss,
-            }, latest_checkpoint_path)
+        torch.save({ 'epoch': epoch + 1, 'model_state_dict': model.state_dict(), # ... (include other relevant states)
+                    'optimizer_state_dict': optimizer.state_dict(), 'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                    'best_val_loss': best_val_loss, 'current_val_loss': avg_val_loss, 'config': config_summary }, latest_checkpoint_path)
 
 
+        if epochs_no_improve >= EARLY_STOPPING_PATIENCE:
+            print(f"Early stopping triggered after {EARLY_STOPPING_PATIENCE} epochs with no improvement on validation loss.")
+            break
+            
     print(f"Training complete. Best validation loss achieved: {best_val_loss:.4f}")
-    print(f"Checkpoints and logs saved in: {CHECKPOINT_DIR}")
-
-if __name__ == "__main__":
-    # Store script and key configurations used for this run
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True) # Ensure it exists before trying to copy
+    # ... (save script copy logic from previous train script) ...
     try:
-        # Save a copy of the training script
         script_path = os.path.abspath(__file__)
         destination_script_path = os.path.join(CHECKPOINT_DIR, os.path.basename(script_path))
         with open(script_path, 'r') as source_file, open(destination_script_path, 'w') as dest_file:
             dest_file.write(source_file.read())
-        print(f"Saved training script to {destination_script_path}")
-        
-        # Save main config parameters to a json file
-        config_summary = {
-            "BASE_DATA_DIR": BASE_DATA_DIR, "TRAIN_CSV_PATH": TRAIN_CSV_PATH, "TRAIN_VIDEO_DIR": TRAIN_VIDEO_DIR,
-            "TRAIN_RUN_TIMESTAMP": TRAIN_RUN_TIMESTAMP, "CHECKPOINT_DIR": CHECKPOINT_DIR,
-            "HF_PROCESSOR_NAME": HF_PROCESSOR_NAME, "HF_MODEL_NAME": HF_MODEL_NAME,
-            "BACKBONE_FEATURE_DIM": BACKBONE_FEATURE_DIM, "NUM_CLIP_FRAMES": NUM_CLIP_FRAMES,
-            "TARGET_PROCESSING_FPS": TARGET_PROCESSING_FPS, "SEQUENCE_WINDOW_SECONDS": SEQUENCE_WINDOW_SECONDS,
-            "BATCH_SIZE": BATCH_SIZE, "EPOCHS": EPOCHS, "LEARNING_RATE": LEARNING_RATE,
-            "WEIGHT_DECAY": WEIGHT_DECAY, "ALPHA_LOSS": ALPHA_LOSS, "SCHEDULER_PATIENCE": SCHEDULER_PATIENCE,
-            "SCHEDULER_FACTOR": SCHEDULER_FACTOR, "GRADIENT_CLIP_VAL": GRADIENT_CLIP_VAL, "SEED": SEED,
-            "DATALOADER_NUM_WORKERS": DATALOADER_NUM_WORKERS
-        }
-        with open(os.path.join(CHECKPOINT_DIR, "run_config.json"), "w") as f:
-            json.dump(config_summary, f, indent=4)
-        print(f"Saved run configuration to {os.path.join(CHECKPOINT_DIR, 'run_config.json')}")
+    except Exception as e: print(f"Error saving training script: {e}")
 
-    except Exception as e:
-        print(f"Error saving script/config: {e}")
 
+if __name__ == "__main__":
     main()

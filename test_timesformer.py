@@ -34,6 +34,7 @@ TARGET_PROCESSING_FPS = 3  # Should be consistent with how dataset processes vid
 SEQUENCE_WINDOW_SECONDS = 10.0 # Duration of video segment to process
 BATCH_SIZE = 4            # Adjust based on GPU memory for inference
 DATALOADER_NUM_WORKERS = min(os.cpu_count() // 2 if os.cpu_count() else 0, 4)
+DROPOUT_RATE_INFERENCE = 0.3
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -84,35 +85,35 @@ def main():
                              num_workers=DATALOADER_NUM_WORKERS, collate_fn=collate_fn_hf_videos,
                              pin_memory=True if device == 'cuda' else False)
 
-    # --- Load Model ---
-    print(f"Loading model architecture {HF_MODEL_NAME} with custom heads...")
-    # Try to load config from checkpoint if available
+    print(f"Loading model from: {BEST_MODEL_PATH}")
+    if not os.path.exists(BEST_MODEL_PATH): # ... (error check) ...
+        print(f"ERROR: Best model path not found: {BEST_MODEL_PATH}")
+        print("Please update BEST_MODEL_PATH in the script.")
+        return
+
     checkpoint = torch.load(BEST_MODEL_PATH, map_location=device)
-    model_config = checkpoint.get('config', {}) # Get saved config from checkpoint
+    model_config_saved = checkpoint.get('config', {}) # Config saved during training
 
-    # Override with config from checkpoint if they exist, otherwise use script defaults
-    loaded_hf_model_name = model_config.get("HF_MODEL_NAME", HF_MODEL_NAME)
-    loaded_num_clip_frames = model_config.get("NUM_CLIP_FRAMES", NUM_CLIP_FRAMES)
-    loaded_backbone_feature_dim = model_config.get("BACKBONE_FEATURE_DIM", BACKBONE_FEATURE_DIM)
-
-    if loaded_hf_model_name != HF_MODEL_NAME:
-        print(f"Note: Model name from checkpoint ({loaded_hf_model_name}) differs from script default ({HF_MODEL_NAME}). Using checkpoint's.")
-    if loaded_num_clip_frames != NUM_CLIP_FRAMES:
-         print(f"Note: Num clip frames from checkpoint ({loaded_num_clip_frames}) differs from script default ({NUM_CLIP_FRAMES}). Using checkpoint's.")
-    if loaded_backbone_feature_dim != BACKBONE_FEATURE_DIM:
-         print(f"Note: Backbone feature dim from checkpoint ({loaded_backbone_feature_dim}) differs from script default ({BACKBONE_FEATURE_DIM}). Using checkpoint's.")
+    # Use config from checkpoint primarily, with fallbacks to script defaults
+    loaded_hf_model_name = model_config_saved.get("HF_MODEL_NAME", HF_MODEL_NAME)
+    loaded_num_clip_frames = model_config_saved.get("NUM_CLIP_FRAMES", NUM_CLIP_FRAMES)
+    # backbone_feature_dim is determined by model.config.hidden_size inside HFCustomTimeSformer
+    loaded_dropout_rate = model_config_saved.get("DROPOUT_RATE", DROPOUT_RATE_INFERENCE)
 
 
+    print(f"Instantiating model with: name={loaded_hf_model_name}, frames={loaded_num_clip_frames}, dropout={loaded_dropout_rate}")
     model = HFCustomTimeSformer(
         hf_model_name=loaded_hf_model_name,
         num_frames_input_clip=loaded_num_clip_frames,
-        backbone_feature_dim=loaded_backbone_feature_dim,
-        pretrained=False # We are loading weights from checkpoint, not re-downloading pretrained
+        # backbone_feature_dim_config will be overridden by model.config.hidden_size in constructor
+        pretrained=False, # Crucial: We are loading weights, not from HF Hub pretrained
+        dropout_rate=loaded_dropout_rate,
+        freeze_backbone=False # Does not matter for inference
     ).to(device)
 
     model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
-    print(f"Model loaded from checkpoint. Epoch: {checkpoint.get('epoch', 'N/A')}, Best Val Loss: {checkpoint.get('best_val_loss', 'N/A')}")
+    model.eval() # Set to evaluation mode (disables dropout etc.)
+    print(f"Model loaded from epoch {checkpoint.get('epoch', 'N/A')}. Best Val Loss: {checkpoint.get('best_val_loss', 'N/A')}")
 
     # --- Prediction Loop ---
     print("Starting predictions...")

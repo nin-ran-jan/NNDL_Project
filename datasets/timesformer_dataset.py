@@ -6,7 +6,9 @@ import numpy as np
 import cv2 # For metadata
 from transformers.models.auto.image_processing_auto import AutoImageProcessor
 
-# Keep your compute_frame_label function (can be in a utils file too)
+
+from utils.video_transforms import get_video_augmentation_transforms # Import new transforms
+
 def compute_frame_label(t, alert_time, sigma_before=2.0, sigma_after=0.5, atol=0.18):
     if pd.isna(alert_time): return 0.0
     if np.isclose(t, alert_time, atol=atol): return 1.0
@@ -18,62 +20,66 @@ class HFVideoDataset(torch.utils.data.Dataset):
                  hf_processor_name: str,
                  num_clip_frames: int,
                  target_processing_fps: int,
-                 sequence_window_seconds: float = 10.0):
-        # ... (init attributes as before) ...
+                 sequence_window_seconds: float = 10.0,
+                 is_train: bool = False, # To apply different transforms
+                 augmentation_spatial_size: tuple = (224, 224) # For aug transforms
+                ):
         self.df = df.reset_index(drop=True)
         self.video_dir = video_dir
         try:
             self.processor = AutoImageProcessor.from_pretrained(hf_processor_name)
         except Exception as e:
             print(f"Error loading HuggingFace processor {hf_processor_name}: {e}")
-            print("Please ensure the processor name is correct and you have an internet connection.")
             raise
         self.num_clip_frames = num_clip_frames
         self.target_processing_fps = target_processing_fps
         self.sequence_window_seconds = sequence_window_seconds
         self.atol_val = 1.0 / self.target_processing_fps if self.target_processing_fps > 0 else 0.18
+        self.is_train = is_train
+        self.augmentation_spatial_size = augmentation_spatial_size
 
+        # Initialize augmentation pipeline
+        self.augmentation_pipeline = get_video_augmentation_transforms(
+            is_train=self.is_train,
+            target_spatial_size=self.augmentation_spatial_size
+        )
 
     def __len__(self):
         return len(self.df)
 
     def _get_placeholder_pixel_values(self):
-        # Helper to create consistent placeholder
-        proc_size_config = getattr(self.processor, 'size', None)
+        # ... (previous _get_placeholder_pixel_values logic, ensuring it produces a 4D tensor
+        #      of shape (self.num_clip_frames, 3, H, W) consistent with processor output)
+        proc_size_config = getattr(self.processor, 'size', {}) # ViTImageProcessor has "size": {"shortest_edge": 224}
         if isinstance(proc_size_config, dict):
-            h = proc_size_config.get('height', proc_size_config.get('shortest_edge', 224))
-            w = proc_size_config.get('width', proc_size_config.get('shortest_edge', 224))
-        elif isinstance(proc_size_config, (int, float)):
-            h = w = int(proc_size_config)
-        else:
-            h = w = 224
+             h = w = proc_size_config.get('shortest_edge', proc_size_config.get('height',224))
+        elif isinstance(proc_size_config, (int, float)): h = w = int(proc_size_config)
+        else: h = w = 224 # Default
+
+        # Create frames that will go through augmentation and then processor
+        dummy_frames_tchw_uint8 = torch.randint(0, 256, (self.num_clip_frames, 3, h, h), dtype=torch.uint8)
         
-        dummy_frames_for_processor = [np.zeros((h, w, 3), dtype=np.uint8) for _ in range(self.num_clip_frames)]
+        # Apply augmentation pipeline (optional for dummy, but good for consistency check)
+        # aug_pipeline expects TCHW uint8, outputs TCHW float [0,1]
+        # For simplicity in placeholder, we might skip aug if it's complex or error-prone on zeros
+        # dummy_frames_tchw_float = self.augmentation_pipeline(dummy_frames_tchw_uint8)
+        
+        # Processor expects list of HWC numpy/PIL or TCHW/THWC tensors
+        # Let's simulate the format processor expects after augmentations (list of HWC numpy)
+        # If aug pipeline output TCHW float, convert
+        # dummy_frames_for_processor = [f.permute(1, 2, 0).cpu().numpy() * 255 for f in dummy_frames_tchw_float.to(torch.uint8)]
+        # Or simpler for placeholder:
+        dummy_frames_for_processor = [np.zeros((h,h,3), dtype=np.uint8) for _ in range(self.num_clip_frames)]
         try:
-            # Use do_rescale=False if processor has it, some newer ones handle it via other flags or by default.
-            # This ensures we don't double-scale if we already scaled to [0,1]
-            rescale_arg = {}
-            if 'do_rescale' in self.processor.__init__.__code__.co_varnames: # Check if processor supports do_rescale
-                 rescale_arg['do_rescale'] = False
-
+            rescale_arg = {} # Default for ViTImageProcessor is do_rescale=True, normalizes image to [0,1]
             processed_output = self.processor(images=dummy_frames_for_processor, return_tensors="pt", **rescale_arg)
-            pixel_values = processed_output["pixel_values"]
-        except Exception as e:
-            print(f"Warning: Processor errored on dummy frames: {e}. Using zero tensor.")
-            pixel_values = torch.zeros(self.num_clip_frames, 3, h, w, dtype=torch.float32)
+            pixel_values = processed_output["pixel_values"] # (T_clip, C, H_proc, W_proc)
+        except Exception:
+            pixel_values = torch.zeros(self.num_clip_frames, 3, h, w, dtype=torch.float32) # Fallback
 
-        # Ensure 4D: (num_clip_frames, C, H, W)
-        if pixel_values.ndim == 5 and pixel_values.shape[0] == 1:
-            pixel_values = pixel_values.squeeze(0)
-        elif pixel_values.ndim == 3 and pixel_values.shape[0] == 3 : # Potentially (C, H, W) for each, stacked makes (T,C,H,W) - this check might be too specific
-            # This case is usually fine if processor output for list is (T,C,H,W)
-            pass
-        
-        # Final check for the expected 4D shape
+        if pixel_values.ndim == 5 and pixel_values.shape[0] == 1: pixel_values = pixel_values.squeeze(0)
         if not (pixel_values.ndim == 4 and pixel_values.shape[0] == self.num_clip_frames and pixel_values.shape[1] == 3):
-            print(f"Warning: Default pixel_values has unexpected shape {pixel_values.shape}. Adjusting to zeros.")
             pixel_values = torch.zeros(self.num_clip_frames, 3, h, w, dtype=torch.float32)
-            
         return pixel_values
 
 
@@ -93,7 +99,7 @@ class HFVideoDataset(torch.utils.data.Dataset):
         if not os.path.exists(video_path): return return_dict_on_error
 
         try:
-            # ... (video metadata loading, windowing logic - remains the same) ...
+            # --- Video loading and windowing (same as before) ---
             cap = cv2.VideoCapture(video_path)
             original_fps = cap.get(cv2.CAP_PROP_FPS)
             total_original_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -106,6 +112,7 @@ class HFVideoDataset(torch.utils.data.Dataset):
 
             tta_for_window_end = np.random.uniform(0.5, 1.5)
             window_start_time_sec, window_end_time_sec = 0.0, 0.0
+            # ... (your windowing logic from previous version) ...
             if not is_positive_event:
                 window_start_time_sec = 0.0
                 window_end_time_sec = min(self.sequence_window_seconds, original_duration_sec)
@@ -115,12 +122,12 @@ class HFVideoDataset(torch.utils.data.Dataset):
             else:
                 window_end_time_sec = min(alert_time_sec + tta_for_window_end, original_duration_sec)
                 window_start_time_sec = max(0.0, window_end_time_sec - self.sequence_window_seconds)
-
             if window_start_time_sec >= window_end_time_sec:
                 window_start_time_sec = 0.0
                 window_end_time_sec = min(self.sequence_window_seconds, original_duration_sec)
                 if window_start_time_sec >= window_end_time_sec: raise ValueError(f"Cannot define valid read window for {video_id}")
             window_end_time_sec = min(window_end_time_sec, original_duration_sec)
+
 
             vframes_segment_tchw_uint8, _, info = tv_io.read_video(
                 video_path, start_pts=window_start_time_sec, end_pts=window_end_time_sec,
@@ -129,43 +136,51 @@ class HFVideoDataset(torch.utils.data.Dataset):
             num_read_frames_in_segment = vframes_segment_tchw_uint8.shape[0]
             if num_read_frames_in_segment == 0: raise ValueError(f"Read 0 frames from segment for {video_id}")
 
+            # --- Uniformly sample `self.num_clip_frames` from the read segment ---
+            # This sampling provides the temporal consistency for label generation.
             if num_read_frames_in_segment < self.num_clip_frames:
                 indices_to_sample = np.pad(np.arange(num_read_frames_in_segment),
                                            (0, self.num_clip_frames - num_read_frames_in_segment), 'edge')
             else:
                 indices_to_sample = np.linspace(0, num_read_frames_in_segment - 1, self.num_clip_frames, dtype=int, endpoint=True)
-            sampled_frames_tchw_uint8 = vframes_segment_tchw_uint8[indices_to_sample]
-            frames_for_processor = [frame.permute(1, 2, 0).numpy() for frame in sampled_frames_tchw_uint8]
-
-            # --- Process with Hugging Face processor ---
-            # Check if processor expects rescaling or if frames are already [0,1]
-            # ViTImageProcessor by default rescales unless do_rescale=False
-            # Your original code had `do_rescale=False if hasattr(self.processor, 'do_rescale') else True`
-            # If your frames_for_processor are uint8 (0-255), then do_rescale=True (default) is fine.
-            # If they were already float [0,1], then do_rescale=False.
-            # Since frames_for_processor are from uint8, default rescaling is usually okay.
-            processed_output = self.processor(images=frames_for_processor, return_tensors="pt")
-            pixel_values = processed_output["pixel_values"]
-
-            # **Crucial Shape Correction:**
-            # Ensure pixel_values is 4D: (num_clip_frames, C, H, W)
-            if pixel_values.ndim == 5 and pixel_values.shape[0] == 1:
-                # This happens if the processor treats the list of frames as a batch of one video
-                pixel_values = pixel_values.squeeze(0)
-            elif pixel_values.ndim == 3 and pixel_values.shape[0] == 3: # If it returned (C,H,W) per frame and they got stacked to (T,C,H,W)
-                 # This condition might be too specific; standard HF processors for lists of images usually return (N, C, H, W)
-                 pass # This means pixel_values is already (T, C, H, W)
             
-            # After potential squeeze, verify the shape is as expected for a single item (4D)
-            if not (pixel_values.ndim == 4 and \
-                    pixel_values.shape[0] == self.num_clip_frames and \
-                    pixel_values.shape[1] == 3): # Assuming 3 channels
-                error_shape = pixel_values.shape
-                # Fallback or raise error if shape is still not right
-                print(f"Warning: Video ID {video_id}, corrected pixel_values shape {error_shape} is still unexpected. Using placeholder.")
-                pixel_values = default_pixel_values # Fallback to a consistently shaped placeholder
+            sampled_frames_tchw_uint8 = vframes_segment_tchw_uint8[indices_to_sample] # (T_clip, C, H, W) uint8
 
-            # ... (frame label generation - remains the same) ...
+            # --- Apply Augmentations (if training) ---
+            # augmentation_pipeline expects TCHW, often uint8, and might output float TCHW [0,1]
+            augmented_frames_tchw = self.augmentation_pipeline(sampled_frames_tchw_uint8)
+            # Ensure it's float [0,1] if ToTensor was last, or convert if needed by processor
+            # The example aug_pipeline ends with ToTensor(), so it should be float [0,1]
+
+            # --- Convert to list of HWC NumPy arrays for Hugging Face processor ---
+            # Processor typically handles normalization and final resizing.
+            # Input to processor: list of PIL Images or HWC NumPy arrays.
+            # If augmented_frames_tchw is float [0,1], convert back to uint8 [0,255] for some processors,
+            # or ensure processor is configured for float [0,1] input.
+            # Most ViTImageProcessors expect uint8 [0,255] HWC or float [0,1] HWC and handle rescaling internally.
+            # Let's provide HWC uint8
+            
+            frames_for_processor = []
+            for i in range(augmented_frames_tchw.shape[0]):
+                frame_chw_float = augmented_frames_tchw[i] # C, H, W float [0,1]
+                frame_hwc_uint8 = (frame_chw_float.permute(1, 2, 0) * 255).to(torch.uint8).cpu().numpy()
+                frames_for_processor.append(frame_hwc_uint8)
+            
+            # --- Process with Hugging Face processor ---
+            # `do_rescale=True` is often default for ViTImageProcessor, which scales 0-255 to 0-1.
+            # Since our aug output is already float [0,1] with ToTensor(), if we pass uint8,
+            # the processor's default `do_rescale=True` and `do_normalize=True` are what we want.
+            rescale_arg = {} # ViTImageProcessor usually rescales uint8 [0,255] to float [0,1] by default
+            processed_output = self.processor(images=frames_for_processor, return_tensors="pt", **rescale_arg)
+            pixel_values = processed_output["pixel_values"] # Expected: (T_clip, C, H_proc, W_proc)
+
+            # Shape correction (ensure 4D for collate_fn)
+            if pixel_values.ndim == 5 and pixel_values.shape[0] == 1: pixel_values = pixel_values.squeeze(0)
+            if not (pixel_values.ndim == 4 and pixel_values.shape[0] == self.num_clip_frames and pixel_values.shape[1] == 3):
+                print(f"Warning: ID {video_id}, final pixel_values shape {pixel_values.shape} is unexpected. Using placeholder.")
+                pixel_values = default_pixel_values
+
+            # --- Generate frame labels (based on original timing of sampled frames) ---
             fps_of_read_segment = info.get("video_fps", original_fps)
             if fps_of_read_segment <= 0: fps_of_read_segment = self.target_processing_fps
 
@@ -183,23 +198,19 @@ class HFVideoDataset(torch.utils.data.Dataset):
                 "binary_label": binary_label, "video_id": video_id, "is_valid": torch.tensor(True)
             }
         except Exception as e:
-            # print(f"ERROR processing {video_id}: {type(e).__name__} - {e}") # Be careful with too much printing in __getitem__
+            # print(f"ERROR processing {video_id} ({video_path}): {type(e).__name__} - {e}")
             return return_dict_on_error
 
-# Your collate_fn_hf_videos (from previous thought process) can be reused here.
-# Ensure it handles the output of this dataset correctly.
-# Key part: `pixel_values_batch = torch.stack(pixel_values_list)` will create (B, T_clip, C, H, W)
+# collate_fn_hf_videos remains the same
 def collate_fn_hf_videos(batch):
+    # ... (same as your previous working version)
     valid_batch = [item for item in batch if item["is_valid"]]
     if not valid_batch: return None
-
-    pixel_values_list = [item["pixel_values"] for item in valid_batch] # List of (T_clip, C, H, W)
-    pixel_values_batch = torch.stack(pixel_values_list) # -> (B, T_clip, C, H, W)
-
+    pixel_values_list = [item["pixel_values"] for item in valid_batch]
+    pixel_values_batch = torch.stack(pixel_values_list)
     frame_labels_batch = torch.stack([item["frame_labels"] for item in valid_batch])
     binary_labels_batch = torch.stack([item["binary_label"] for item in valid_batch])
     video_ids = [item["video_id"] for item in valid_batch]
-
     return {
         "pixel_values": pixel_values_batch, "frame_labels": frame_labels_batch,
         "binary_label": binary_labels_batch, "video_id": video_ids,
