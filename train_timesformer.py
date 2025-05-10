@@ -56,7 +56,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 if torch.cuda.is_available(): torch.cuda.manual_seed_all(SEED)
-DATALOADER_NUM_WORKERS = min(os.cpu_count() // 2 if os.cpu_count() else 0, 4)
+DATALOADER_NUM_WORKERS = 8
 
 def main():
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
