@@ -33,7 +33,7 @@ TARGET_PROCESSING_FPS = 3
 SEQUENCE_WINDOW_SECONDS = 10.0
 AUGMENTATION_SPATIAL_SIZE = (224, 224) # For RandomResizedCrop etc. in augmentation
 
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 EPOCHS = 30 # Total epochs
 LEARNING_RATE = 3e-5 # Initial LR
 WEIGHT_DECAY = 1e-3 # Increased weight decay
@@ -56,7 +56,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 if torch.cuda.is_available(): torch.cuda.manual_seed_all(SEED)
-DATALOADER_NUM_WORKERS = 8
+DATALOADER_NUM_WORKERS = 16
 
 def main():
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
