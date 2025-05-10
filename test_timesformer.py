@@ -15,7 +15,7 @@ from models.custom_timesformer import HFCustomTimeSformer
 # Path Configuration
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")  # Generate timestamp dynamically at runtime
 BASE_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__)) # Assumes script is in hf_timesformer_pipeline
-BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "../nexar-collision-prediction") # Adjust if your data is elsewhere
+BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "/nexar-collision-prediction") # Adjust if your data is elsewhere
 BEST_RUN_DIR = "run_20250509_220558"
 
 TEST_CSV_PATH = os.path.join(BASE_DATA_DIR, "test.csv")
