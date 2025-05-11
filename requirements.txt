@@ -6,3 +6,4 @@ tqdm
 transformers
 Pillow
 pytorchvideo
+kornia
