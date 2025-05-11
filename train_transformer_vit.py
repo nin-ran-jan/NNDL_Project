@@ -30,7 +30,7 @@ CHECKPOINT_PATH_TEMPLATE = os.path.join(CHECKPOINT_DIR, f"ViTTransformer_best_{T
 VIT_FEATURE_DIM = 768      
 MODEL_DIM =  128           
 N_HEADS =  1               
-NUM_ENCODER_LAYERS = 1     
+NUM_ENCODER_LAYERS = 2     
 DIM_FEEDFORWARD = 640    
 DROPOUT = 0.5
 
