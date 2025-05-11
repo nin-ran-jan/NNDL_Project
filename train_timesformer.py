@@ -33,7 +33,7 @@ TARGET_PROCESSING_FPS = 3
 SEQUENCE_WINDOW_SECONDS = 10.0
 AUGMENTATION_SPATIAL_SIZE = (224, 224) # For RandomResizedCrop etc. in augmentation
 
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 EPOCHS = 30 # Total epochs
 LEARNING_RATE = 3e-5 # Initial LR
 WEIGHT_DECAY = 1e-3 # Increased weight decay
