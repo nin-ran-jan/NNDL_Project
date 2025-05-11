@@ -29,14 +29,14 @@ CHECKPOINT_PATH_TEMPLATE = os.path.join(CHECKPOINT_DIR, f"ViTTransformer_best_{T
 # Model Hyperparameters for ViTTransformer
 VIT_FEATURE_DIM = 768      
 MODEL_DIM =  128           
-N_HEADS =  2               
-NUM_ENCODER_LAYERS = 2     
+N_HEADS =  1               
+NUM_ENCODER_LAYERS = 1     
 DIM_FEEDFORWARD = 640    
-DROPOUT = 0.4
+DROPOUT = 0.5
 
 # Training Hyperparameters
 EPOCHS = 50 
-ALPHA = 0.8                
+ALPHA = 0.9                
 VAL_SPLIT = 0.20           
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
