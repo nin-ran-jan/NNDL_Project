@@ -92,6 +92,10 @@ class CustomXCLIPModel(nn.Module):
             return_tensors="pt"
         )
         
+        # Move text_inputs to the same device as the model
+        device = next(self.parameters()).device
+        text_inputs = {k: v.to(device) for k, v in text_inputs.items()}
+        
         with torch.no_grad():
             text_outputs = self.model.get_text_features(**text_inputs)
             # Store positive prompts (first two) and negative prompts (last two)

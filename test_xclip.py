@@ -118,8 +118,11 @@ def main():
         freeze_text_model=True
     ).to(device)
     
-    # Initialize text features
+    # Initialize text features (now handles device correctly in the fixed CustomXCLIPModel)
     model.initialize_text_features(processor.tokenizer)
+    
+    # Load weights
+    model.load_state_dict(checkpoint['model_state_dict'])
     
     # Load weights
     model.load_state_dict(checkpoint['model_state_dict'])

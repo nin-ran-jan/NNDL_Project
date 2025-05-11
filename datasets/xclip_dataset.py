@@ -174,12 +174,19 @@ class XCLIPVideoDataset(torch.utils.data.Dataset):
             frames_bchw = sampled_frames.permute(0, 3, 1, 2).float() / 255.0
             
             # Apply augmentations
+            # Keep transformations on CPU to prevent unnecessary device transfers
             if self.is_train:
                 # Apply strong augmentations for training
                 frames_bchw = self.train_transforms(frames_bchw)
             else:
                 # Simple resize for evaluation
                 frames_bchw = self.eval_transforms(frames_bchw)
+                
+            # Make sure we return float tensors in the expected range
+            if frames_bchw.dtype != torch.float32:
+                frames_bchw = frames_bchw.float()
+                
+            # If we have normalized with Kornia, we don't need another normalization
             
             # Calculate frame timestamps and labels
             fps_of_read_segment = info.get("video_fps", original_fps)
