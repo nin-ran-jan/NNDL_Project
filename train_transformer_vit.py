@@ -36,7 +36,7 @@ DROPOUT = 0.4
 
 # Training Hyperparameters
 EPOCHS = 50 
-ALPHA = 0.3                
+ALPHA = 0.8                
 VAL_SPLIT = 0.20           
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
