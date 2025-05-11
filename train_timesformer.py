@@ -37,7 +37,7 @@ BATCH_SIZE = 4
 EPOCHS = 30 # Total epochs
 LEARNING_RATE = 3e-5 # Initial LR
 WEIGHT_DECAY = 1e-3 # Increased weight decay
-ALPHA_LOSS = 0.5
+ALPHA_LOSS = 0.8
 GRADIENT_CLIP_VAL = 1.0
 DROPOUT_RATE = 0.3 # Dropout for custom heads
 
