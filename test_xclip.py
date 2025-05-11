@@ -14,7 +14,7 @@ from transformers.models.x_clip import XCLIPProcessor
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 BASE_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DATA_DIR = os.path.join(BASE_PROJECT_DIR, "nexar-collision-prediction")
-BEST_RUN_DIR = "xclip_run_20250511_020430"  # Replace with your best run timestamp
+BEST_RUN_DIR = "xclip_run_20250511_055735"  # Replace with your best run timestamp
 
 TEST_CSV_PATH = os.path.join(BASE_DATA_DIR, "test.csv")
 TEST_VIDEO_DIR = os.path.join(BASE_DATA_DIR, "test")
