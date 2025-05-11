@@ -19,7 +19,9 @@ CURRENT_TEST_RUN_TIMESTAMP = time.strftime("%Y%m%d%H%M%S")
 # !!! IMPORTANT: Update these to match your TRAINED ViTTransformer model and TEST ViT features !!!
 # Timestamp/ID of the TRAINED ViTTransformer model checkpoint you want to use for testing
 # User provided: MODEL_CHECKPOINT_TIMESTAMP = "20250509170638" 
-MODEL_CHECKPOINT_TIMESTAMP = "20250511162022" # Example: The TRAIN_RUN_TIMESTAMP of the saved best model
+MODEL_CHECKPOINT_TIMESTAMP = "20250511163435" # Example: The TRAIN_RUN_TIMESTAMP of the saved best model
+# 20250511162022 -> alpha 0.8
+# 20250511163435 -> alpha 0.9 numheads 1 numlayers 2
 
 # Timestamp/ID of the TEST ViT feature set you are using
 # User provided: TEST_DATA_TIMESTAMP = "250509_173651"
