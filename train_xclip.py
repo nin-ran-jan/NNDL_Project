@@ -67,7 +67,7 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
-DATALOADER_NUM_WORKERS = 4
+DATALOADER_NUM_WORKERS = 16
 PIN_MEMORY = True
 
 def main():
