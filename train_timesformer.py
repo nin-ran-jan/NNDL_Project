@@ -151,7 +151,7 @@ def main():
     # It also uses a cosine annealing scheduler.
     # It also uses a linear warmup scheduler.
     if SCHEDULER_TYPE == "ReduceLROnPlateau":
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE, verbose=True)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE)
     elif SCHEDULER_TYPE == "CosineAnnealing":
         t_max_steps = int(COSINE_T_MAX_RATIO * total_steps)
         scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=t_max_steps)
@@ -183,7 +183,7 @@ def main():
             print(f"Optimizer re-initialized. New LR for full model: {new_lr:.2e}")
             # Scheduler logic is first generated using AI and used in other scripts.
             if SCHEDULER_TYPE == "ReduceLROnPlateau":
-                scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE, verbose=True)
+                scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=R_PLATEAU_FACTOR, patience=R_PLATEAU_PATIENCE)
             elif SCHEDULER_TYPE == "CosineAnnealing":
                 remaining_epochs = EPOCHS - epoch
                 remaining_steps = len(train_loader) * remaining_epochs

@@ -90,7 +90,6 @@ def get_frames_for_batch_parallel(df_batch, video_dir, sequence_length=20, resol
     return all_frames_ordered, video_indices_ordered
 
 
-# --- Main Script ---
 if __name__ == "__main__":
     TEST_VIDEO_DIR = "nexar-collision-prediction/test"
     CSV_PATH = "nexar-collision-prediction/test.csv"
