@@ -169,11 +169,11 @@ class FrameCollector:
         default_frame_width = 1280
 
         tasks_args = [
-            (row_dict, self.video_dir, self.fps_target, self.sequence_length, atol, default_frame_height, default_frame_width)
-            for row_dict in self.df.to_dict('records')
+            (task_arg, self.video_dir, self.fps_target, self.sequence_length, atol, default_frame_height, default_frame_width)
+            for task_arg in self.df.to_dict('records')
         ]
         
-        self.video_order = [row_dict[0]['id'] for row_dict in tasks_args] # Store original video order
+        self.video_order = [task_arg[0]['id'] for task_arg in tasks_args] # Store original video order
 
         self.frames_per_video_map = {}
         self.labels_per_video_map = {}
