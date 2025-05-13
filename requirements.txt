@@ -1,0 +1,9 @@
+pandas
+opencv-python
+torch
+torchvision
+tqdm
+transformers
+Pillow
+pytorchvideo
+kornia

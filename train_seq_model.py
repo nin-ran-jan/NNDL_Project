@@ -15,16 +15,21 @@ VAL_SPLIT = 0.25
 BATCH_SIZE = 32
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-feature_dir = f"ResNet_Features/batch_{TIMESTAMP}"
+feature_dir = f"processed_data/CLIP_ViT_Features_clip-vit-large-patch14/run_250509_162201"
 checkpoint_path = f"checkpoints/ResNetLSTM_best_{TIMESTAMP}.pth"
 
-model = ResNetLSTM().to(device)
+model = ResNetLSTM(input_dim=768).to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion_frame = nn.BCELoss(reduction="sum")
 criterion_binary = nn.BCELoss(reduction="sum")
 best_val_loss = float("inf")
 
-batch_indices = sorted(set(f.split("_")[2][5:] for f in os.listdir(feature_dir) if f.endswith(".npy")))
+# batch_indices = sorted(set(f.split("_")[2][5:] for f in os.listdir(feature_dir) if f.endswith(".npy")))
+batch_indices = sorted(list(set(
+    f.split("_")[4].split(".")[0] 
+    for f in os.listdir(feature_dir)
+    if f.startswith("train_features_saving_batch") and f.endswith(".npy")
+)))
 
 model.train()
 
@@ -35,8 +40,14 @@ for epoch in range(EPOCHS):
     total_val_samples = 0
 
     for batch_idx in batch_indices:
-        features = np.load(os.path.join(feature_dir, f"train_features_batch{batch_idx}_{TIMESTAMP}.npy"), allow_pickle=True)
-        labels = np.load(os.path.join(feature_dir, f"train_labels_batch{batch_idx}_{TIMESTAMP}.npy"), allow_pickle=True)
+        # features = np.load(os.path.join(feature_dir, f"train_features_batch{batch_idx}_{TIMESTAMP}.npy"), allow_pickle=True)
+        # labels = np.load(os.path.join(feature_dir, f"train_labels_batch{batch_idx}_{TIMESTAMP}.npy"), allow_pickle=True)
+
+        feature_file = f"train_features_saving_batch_{batch_idx}.npy"
+        label_file = f"train_labels_saving_batch_{batch_idx}.npy"
+
+        features = np.load(os.path.join(feature_dir, feature_file), allow_pickle=True)
+        labels = np.load(os.path.join(feature_dir, label_file), allow_pickle=True)
 
         dataset = AccidentFeatureDataset(features, labels)
         val_size = int(VAL_SPLIT * len(dataset))

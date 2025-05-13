@@ -1,0 +1,8 @@
+Saving features to: CLIP_ViT_Features_clip-vit-large-patch14/run_250509_020852
+Total videos to process: 1500
+Saving features in 12 batches of up to 128 videos each.
+ViT model for feature extraction: openai/clip-vit-large-patch14
+ViT processing batch size (frames): 32
+
+--- Processing video saving_batch 1/12: videos 0 to 127 ---
+Starting frame collection with 8 workers...

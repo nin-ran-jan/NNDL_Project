@@ -16,7 +16,7 @@ if __name__ == "__main__":
     TIME_WINDOW = 10.0
     SEQUENCE_LENGTH = int(FPS_TARGET * TIME_WINDOW)
     BATCH_SIZE = 32
-    SAVE_INTERVAL = 128
+    SAVE_INTERVAL = 256
 
     timestamp_str = datetime.now().strftime("%d%m%H%M%S")
     feature_save_dir = f"ResNet_Features/batch_{timestamp_str}"
