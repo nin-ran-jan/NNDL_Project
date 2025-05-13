@@ -6,6 +6,11 @@ import torch
 from torchvision import transforms
 import random
 
+# AI Prompts used
+# improve formating of the code
+# improve variable names
+# improve docstrings
+
 # Standard ImageNet normalization
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -19,9 +24,6 @@ class ApplyToFrames:
         self.transform = transform
 
     def __call__(self, video_tensor_tchw):
-        # video_tensor_tchw expected to be (T, C, H, W)
-        # Permute to (T, H, W, C) for some transforms if needed, or apply directly if transform handles TCHW slices
-        # Most torchvision transforms expect (C, H, W)
         
         transformed_frames = []
         for i in range(video_tensor_tchw.size(0)):
@@ -62,8 +64,7 @@ class RandomTemporalChunkCrop:
 
 def get_video_augmentation_transforms(
     is_train: bool,
-    target_spatial_size: tuple = (224, 224), # For RandomResizedCrop or final size
-    # num_frames_to_sample: int = 8 # This will be handled by the dataset before processor
+    target_spatial_size: tuple = (224, 224),
 ):
     """
     Returns a transform pipeline for video data augmentation.
@@ -73,29 +74,22 @@ def get_video_augmentation_transforms(
     Input: TCHW uint8 tensor. Output: TCHW float tensor (typically).
     """
     if is_train:
-        # These transforms are applied to each frame individually
         frame_transforms = [
-            transforms.ToPILImage(), # For torchvision transforms that expect PIL
+            transforms.ToPILImage(), # The processor expects PIL images
             transforms.RandomResizedCrop(
-                size=target_spatial_size, # Crop to this size directly
-                scale=(0.6, 1.0), # Crop 60% to 100% of the image
+                size=target_spatial_size, 
+                scale=(0.6, 1.0), 
                 ratio=(0.75, 1.33)
             ),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.1),
-            transforms.ToTensor(), # Converts PIL to FloatTensor in [0,1] and C,H,W
-            # Normalization will be handled by the Hugging Face processor later
+            transforms.ToTensor(), 
         ]
-        # Video-level transforms (applied to TCHW tensor)
         video_pipeline = transforms.Compose([
-            # Example: RandomTemporalChunkCrop(num_frames_to_sample), # If you want to sample chunks before HF processor
             ApplyToFrames(transforms.Compose(frame_transforms)),
-            # Note: HF processor will do final normalization and potentially resizing.
-            # These augmentations focus on geometric and color variations.
         ])
-    else: # Validation / Test
-        # Minimal transforms, usually just resize/crop to what model expects.
-        # The HF processor handles this for eval. So, minimal pre-processor transforms.
+    else: # val/test path
+        # processor for hugging face handles this for eval. hence minimal
         frame_transforms_eval = [
             transforms.ToPILImage(),
             transforms.Resize(target_spatial_size[0]), # Resize shorter edge

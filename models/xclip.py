@@ -3,6 +3,12 @@ import torch.nn as nn
 from transformers.models.x_clip import XCLIPModel, XCLIPConfig
 import torch.nn.functional as F
 
+# AI Prompts used
+# improve formating of the code
+# improve variable names
+# improve comments
+# improve docstrings
+
 
 class CustomXCLIPModel(nn.Module):
     def __init__(self,
@@ -62,12 +68,10 @@ class CustomXCLIPModel(nn.Module):
             nn.Linear(256, 1)
         )
         
-        # Initialize dummy text inputs with "collision" and "no collision" prompts
-        # This will give the model context even though we're not using actual text input
+        # adjustment for the text features, since we don't have any
         self._initialize_text_features()
     
     def _initialize_text_features(self):
-        # Will be initialized with actual tokenizer in initialize_text_features method
         self.register_buffer("text_features", torch.zeros(2, self.projection_dim))
         self.text_initialized = False
     
@@ -77,6 +81,7 @@ class CustomXCLIPModel(nn.Module):
             return
             
         # Using specific prompts for our dashcam collision task
+        # AI suggested these prompts
         prompts = [
             "a dashcam video of a traffic collision accident",
             "a dashcam video of a near-collision dangerous situation",
@@ -154,11 +159,8 @@ class CustomXCLIPModel(nn.Module):
         """
         batch_size = pixel_values.shape[0]
         
-        # Get video features from the model
         video_features = self.model.get_video_features(pixel_values=pixel_values)
         
-        # For frame-level features, we need to access the vision model outputs
-        # We need to restructure the input for this
         pixel_values_flat = pixel_values.reshape(-1, 3, 224, 224)
         
         vision_outputs = self.model.vision_model(pixel_values=pixel_values_flat)

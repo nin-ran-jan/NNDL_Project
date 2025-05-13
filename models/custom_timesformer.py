@@ -3,6 +3,13 @@ import torch.nn as nn
 from transformers.models.auto.modeling_auto import AutoModel
 from transformers.models.timesformer.configuration_timesformer import TimesformerConfig
 
+# AI Prompts used
+# improve formating of the code
+# improve variable names
+# improve comments
+# improve docstrings
+# add error and log handling statements
+# I encoundered some errors with the dimensions of the tensors, used AI to help debug 
 class HFCustomTimeSformer(nn.Module):
     def __init__(self,
                  hf_model_name: str,
@@ -28,7 +35,6 @@ class HFCustomTimeSformer(nn.Module):
             for param in self.backbone.parameters():
                 param.requires_grad = False
         
-        # Custom heads with dropout
         self.dropout = nn.Dropout(dropout_rate)
         self.frame_fc = nn.Linear(self.backbone_actual_feature_dim, 1)
         self.seq_fc = nn.Linear(self.backbone_actual_feature_dim, 1)
@@ -50,9 +56,8 @@ class HFCustomTimeSformer(nn.Module):
         patch_tokens = last_hidden_state[:, 1:, :]
         num_actual_patch_tokens = patch_tokens.shape[1]
 
+        # control statement AI generated
         if num_actual_patch_tokens % self.num_frames_input_clip != 0:
-            # This should ideally not happen if CLS token handling is correct
-            # and num_frames_input_clip matches how patches are formed.
             print(f"Warning: Actual patch tokens {num_actual_patch_tokens} not cleanly divisible by num_clip_frames {self.num_frames_input_clip}. Frame logits will be zeros.")
             frame_logits = torch.zeros((batch_size, self.num_frames_input_clip), device=pixel_values.device)
         else:

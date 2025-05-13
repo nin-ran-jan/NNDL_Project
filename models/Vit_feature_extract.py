@@ -9,6 +9,9 @@ from transformers.models.clip import CLIPProcessor
 from datasets.video_dataset import FrameBatchDataset
 from models.ViT_model import get_clip_vision_model 
 
+# Had some errors with passing the batch to the model, so I used AI to help debug
+# this Colligate function was suggested
+# logic is simple, just return the batch
 def pil_list_collate_fn(batch):
     """
     Collate function for DataLoader.
@@ -17,6 +20,11 @@ def pil_list_collate_fn(batch):
     """
     return batch
 
+# AI Prompts used
+# improve formating of the code
+# improve variable names
+# improve comments
+# add error and log handling statements
 def extract_features_batched_hf(all_numpy_frames,
                                  model_name="openai/clip-vit-large-patch14",
                                  batch_size=32):
@@ -24,10 +32,12 @@ def extract_features_batched_hf(all_numpy_frames,
     print(f"Using device: {device}")
 
     model = torch.compile(get_clip_vision_model(model_name=model_name).to(device).eval())
-    # processor form huggingface
+    # processor
     processor = CLIPProcessor.from_pretrained(model_name, use_fast=False)
 
     # Define the transform to convert BGR NumPy array to RGB PIL Image
+    # I was getting errors with the transform and performance.
+    # Ai pointed out the errors wrt compatibility with the model and output format of different libraries
     def bgr_numpy_to_rgb_pil(numpy_frame):
         return Image.fromarray(cv2.cvtColor(numpy_frame, cv2.COLOR_BGR2RGB))
 
@@ -66,6 +76,9 @@ def extract_features_batched_hf(all_numpy_frames,
     all_features_np = np.vstack(all_features_list)
     return all_features_np
 
+# The debugging was a bit tricky, so I used AI to help debug
+# statements added are using AI
+# There were issues with dimensions of the tensors
 def extract_features_single_video_optimized(
     video_frames_tensor_tchw,
     model,
@@ -117,8 +130,6 @@ def extract_features_single_video_optimized(
 
             except Exception as e_inner:
                 print(f"      ERROR in Extractor Loop for video (frames {i_loop}-{i_loop+internal_model_batch_size}): {type(e_inner).__name__} - {e_inner}")
-                # Decide if you want to continue or return empty if any batch fails
-                # For now, let it continue and potentially result in an empty all_image_embeds_list if all fail
 
     if not all_image_embeds_list:
         print("    Extractor DEBUG: all_image_embeds_list is empty after loop. Returning empty np.array.")

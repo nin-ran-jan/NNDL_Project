@@ -6,8 +6,15 @@ from collections import defaultdict
 from .ResNet_model import get_resnet_model
 from datasets.video_dataset import FrameBatchDataset
 
+# AI Prompts used
+# improve formating of the code
+# improve variable names
+# improve comments
+# improve docstrings
+# add error and log handling statements
 def extract_features_batched(frames, transform, batch_size=32):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Compilation suggested by AI
     # Compile the model for faster processing
     model = torch.compile(get_resnet_model().to(device).eval())
 
@@ -25,6 +32,7 @@ def extract_features_batched(frames, transform, batch_size=32):
             batch = batch.to(device)
             # Mixed precision for faster processing
             # L4 gpu has good support for bfloat16
+            # AI suggested this
             with torch.autocast(device.type, dtype=torch.bfloat16):
                 feats = model(batch).squeeze(-1).squeeze(-1)
             all_features.append(feats.cpu().numpy())

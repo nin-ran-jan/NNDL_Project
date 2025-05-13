@@ -2,46 +2,26 @@ import torch
 import numpy as np
 import os
 import csv
-import time # For unique timestamps for submission file if needed
+import time
 
-# Import your models and dataset
-# User's script has: from models.Vit_Transformer import ViTTransformer
 from models.Vit_Transformer import ViTTransformer 
 from datasets.feature_dataset import AccidentFeatureDataset
 from torch.utils.data import DataLoader
-from torch.nn.utils.rnn import pad_sequence # For collate_fn
+from torch.nn.utils.rnn import pad_sequence
 
-# --- Configuration Section ---
-# Timestamps and Paths
-# Timestamp for this specific test run (used for naming the submission file)
 CURRENT_TEST_RUN_TIMESTAMP = time.strftime("%Y%m%d%H%M%S") 
 
-# !!! IMPORTANT: Update these to match your TRAINED ViTTransformer model and TEST ViT features !!!
-# Timestamp/ID of the TRAINED ViTTransformer model checkpoint you want to use for testing
-# User provided: MODEL_CHECKPOINT_TIMESTAMP = "20250509170638" 
-MODEL_CHECKPOINT_TIMESTAMP = "20250511163435" # Example: The TRAIN_RUN_TIMESTAMP of the saved best model
-# 20250511162022 -> alpha 0.8
-# 20250511163435 -> alpha 0.9 numheads 1 numlayers 2
+MODEL_CHECKPOINT_TIMESTAMP = "20250511163435"
 
-# Timestamp/ID of the TEST ViT feature set you are using
-# User provided: TEST_DATA_TIMESTAMP = "250509_173651"
-TEST_DATA_TIMESTAMP = "250509_185359" # !!! UPDATE this for your test feature set
+TEST_DATA_TIMESTAMP = "250509_185359" 
 
-# Feature directory structure (similar to your training script)
-# User provided: FEATURE_DIR_BASE = "CLIP_ViT_Features_Test_clip-vit-large-patch14"
-# Note: The log showed "Attempting to load test data from: CLIP_ViT_Features_Test_clip-vit-large-patch14/run_250509_173651"
-# This implies FEATURE_DIR_BASE should be "CLIP_ViT_Features_Test_clip-vit-large-patch14"
-# And TEST_FEATURE_SUBDIR should be f"run_{TEST_DATA_TIMESTAMP}"
-FEATURE_DIR_BASE = "CLIP_ViT_Features_Test_clip-vit-large-patch14"  # Base dir for ViT features
-TEST_FEATURE_SUBDIR = f"run_{TEST_DATA_TIMESTAMP}" # Subdirectory for this specific TEST feature set
+FEATURE_DIR_BASE = "CLIP_ViT_Features_Test_clip-vit-large-patch14" 
+TEST_FEATURE_SUBDIR = f"run_{TEST_DATA_TIMESTAMP}" 
 
-
-# Path to the trained model checkpoint
 CHECKPOINT_DIR = "checkpoints"
 CHECKPOINT_FILENAME = f"ViTTransformer_best_{MODEL_CHECKPOINT_TIMESTAMP}.pth"
 MODEL_CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, CHECKPOINT_FILENAME)
 
-# Model Hyperparameters for ViTTransformer
 VIT_FEATURE_DIM = 768      
 MODEL_DIM =  128           
 N_HEADS =  4               
@@ -49,25 +29,21 @@ NUM_ENCODER_LAYERS = 2
 DIM_FEEDFORWARD = 640    
 DROPOUT = 0.3
 
-# Test Hyperparameters
 BATCH_SIZE = 32
-# --- End Configuration Section ---
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 print(f"Current Test Run Timestamp: {CURRENT_TEST_RUN_TIMESTAMP}")
 print(f"Loading model checkpoint: {MODEL_CHECKPOINT_PATH}")
 
+# AI prompts:
+# Improve formatting
+# And sensible outputs when runing the script
+# Add control statements for errors
+# Note: I ran into several issues so I generated some debug statements using AI
+
 
 def load_test_features_and_ids(feature_dir_path):
-    """
-    Loads all test features and their IDs from .npy files in the specified directory.
-    Adjusted for a naming pattern like:
-    test_features_saving_batch_<INDEX>.npy
-    test_ids_saving_batch_<INDEX>.npy 
-    (This is an assumption based on your training script's 'saving_batch' pattern. 
-     If your test files are named differently, e.g., using TEST_DATA_TIMESTAMP, adjust this function.)
-    """
     all_features = []
     all_ids = []
     
@@ -76,10 +52,6 @@ def load_test_features_and_ids(feature_dir_path):
         return None, None
 
     try:
-        # Adapt this logic if your test file naming is different
-        # E.g. if they include TEST_DATA_TIMESTAMP like: test_features_batch0_TESTDATATIMESTAMP.npy
-        # This example assumes a pattern like 'test_features_saving_batch_X.npy'
-        # Based on user log, indices are '1', '10', '11', etc.
         feature_batch_indices = sorted(list(set(
             f.split("_")[4].split(".")[0] 
             for f in os.listdir(feature_dir_path)
@@ -96,9 +68,8 @@ def load_test_features_and_ids(feature_dir_path):
         return None, None
 
     for batch_idx in feature_batch_indices:
-        # Adjust file naming to match your test set
         feature_file = f"test_features_saving_batch_{batch_idx}.npy"
-        id_file = f"test_ids_saving_batch_{batch_idx}.npy" # Assuming a similar naming for ID files
+        id_file = f"test_ids_saving_batch_{batch_idx}.npy" 
         
         feature_path = os.path.join(feature_dir_path, feature_file)
         ids_path = os.path.join(feature_dir_path, id_file)
@@ -131,12 +102,7 @@ def load_test_features_and_ids(feature_dir_path):
 
 
 def collate_sequences_test(batch):
-    """
-    Collate function for test data. Pads sequences and creates padding masks.
-    The 'batch' here will be a list of (sequence_features, dummy_frame_labels, dummy_binary_label)
-    We only care about sequence_features for padding.
-    """
-    sequences = [item[0] for item in batch] # item[0] is sequence_features
+    sequences = [item[0] for item in batch] 
 
     sequences_padded = pad_sequence(sequences, batch_first=True, padding_value=0.0)
     
@@ -147,7 +113,6 @@ def collate_sequences_test(batch):
     return sequences_padded, padding_mask
 
 
-# --- Data Loading for Test Set ---
 full_test_feature_dir = os.path.join(FEATURE_DIR_BASE, TEST_FEATURE_SUBDIR) 
 print(f"Attempting to load test data from: {full_test_feature_dir}")
 
@@ -161,9 +126,7 @@ if not test_features_all:
     print("No test features loaded after load_test_features_and_ids. Exiting.")
     exit()
     
-# --- Determine seq_len_example for dummy_frame_labels robustly ---
 seq_len_example = 0
-# Try to get from the first feature item
 if isinstance(test_features_all[0], np.ndarray):
     seq_len_example = test_features_all[0].shape[0]
 elif isinstance(test_features_all[0], torch.Tensor):
@@ -171,15 +134,14 @@ elif isinstance(test_features_all[0], torch.Tensor):
 else:
     print(f"Warning: Unexpected feature type for test_features_all[0]: {type(test_features_all[0])}.")
 
-# If first item gave 0 length, or was unexpected type, iterate to find a valid length
 if seq_len_example == 0:
     print(f"Warning: The first feature sequence (test_features_all[0]) has a length of 0 or is of an unexpected type.")
     valid_seq_len_found = False
     for features_item in test_features_all:
         current_item_len = 0
-        if isinstance(features_item, np.ndarray) and len(features_item.shape) > 0 : # Check if it's not an empty scalar array
+        if isinstance(features_item, np.ndarray) and len(features_item.shape) > 0 : 
             current_item_len = features_item.shape[0]
-        elif isinstance(features_item, torch.Tensor) and features_item.dim() > 0: # Check if it's not an empty scalar tensor
+        elif isinstance(features_item, torch.Tensor) and features_item.dim() > 0: 
             current_item_len = features_item.size(0)
         
         if current_item_len > 0:
@@ -187,29 +149,21 @@ if seq_len_example == 0:
             valid_seq_len_found = True
             print(f"Using sequence length {seq_len_example} from a subsequent valid feature item for dummy labels.")
             break
-    if not valid_seq_len_found:
-        print("CRITICAL WARNING: No valid non-empty feature sequences found to determine seq_len_example for dummy labels.")
-        print("This indicates a serious issue with your test feature data. All feature sequences might be empty.")
-        print("Defaulting dummy label sequence length to 1 to prevent immediate crash, but results will be meaningless if features are truly empty.")
-        seq_len_example = 1 # Default to 1 as a last resort
 else:
     print(f"Using sequence length {seq_len_example} from the first feature item for dummy labels.")
 
 
-# Ensure seq_len_example is at least 1 if we are creating dummy labels
-if seq_len_example <= 0: # This should ideally not be hit if the above logic works
+if seq_len_example <= 0: 
     print(f"Final Check Warning: seq_len_example is {seq_len_example}. Forcing to 1 for dummy labels.")
     seq_len_example = 1
     
 dummy_frame_labels = np.zeros((len(test_features_all), seq_len_example, 1), dtype=np.float32)
 print(f"Created dummy_frame_labels with shape: {dummy_frame_labels.shape}")
 
-# Create dataset and dataloader for the test set
 test_dataset = AccidentFeatureDataset(test_features_all, dummy_frame_labels) 
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_sequences_test)
 
 
-# --- Model Instantiation and Loading ---
 model = ViTTransformer(
     feature_dim=VIT_FEATURE_DIM,
     model_dim=MODEL_DIM,
@@ -232,7 +186,6 @@ except Exception as e:
 
 model.eval() 
 
-# --- Inference ---
 all_scores = []
 
 with torch.no_grad():
@@ -254,7 +207,6 @@ if len(all_scores) != len(test_ids_all):
 else:
     print(f"Generated {len(all_scores)} scores for {len(test_ids_all)} test videos.")
 
-# --- Submission File ---
 submission_dir = "submissions"
 os.makedirs(submission_dir, exist_ok=True)
 submission_filename = f"submission_ViTTransformer_{CURRENT_TEST_RUN_TIMESTAMP}.csv"

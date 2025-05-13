@@ -5,28 +5,28 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import os
-import time # For unique timestamps
+import time
 
-# Import your models and dataset
-# User's script has: from models.Vit_Transformer import ViTTransformer
-# Assuming Vit_Transformer.py exists in a 'models' directory.
 from models.Vit_Transformer import ViTTransformer 
 from datasets.feature_dataset import AccidentFeatureDataset 
 
-# --- Configuration Section ---
-# Timestamps and Paths
+# AI Prompts:
+# Improve formatting
+# And sensible outputs when runing the script
+# Add control statements for errors
+# Saving and config related code is generated using AI.
+
+# config
 TRAIN_RUN_TIMESTAMP = time.strftime("%Y%m%d%H%M%S") 
-# User provided DATA_TIMESTAMP
 DATA_TIMESTAMP = "250509_162201" 
 
-# User provided FEATURE_DIR_BASE and FEATURE_SUBDIR structure
 FEATURE_DIR_BASE = "processed_data/CLIP_ViT_Features_clip-vit-large-patch14"  
 FEATURE_SUBDIR = f"run_{DATA_TIMESTAMP}" 
 CHECKPOINT_DIR = "checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 CHECKPOINT_PATH_TEMPLATE = os.path.join(CHECKPOINT_DIR, f"ViTTransformer_best_{TRAIN_RUN_TIMESTAMP}.pth")
 
-# Model Hyperparameters for ViTTransformer
+# model hyperparameters
 VIT_FEATURE_DIM = 768      
 MODEL_DIM =  128           
 N_HEADS =  1               
@@ -34,15 +34,13 @@ NUM_ENCODER_LAYERS = 2
 DIM_FEEDFORWARD = 640    
 DROPOUT = 0.5
 
-# Training Hyperparameters
+# training hyperparameters
 EPOCHS = 50 
 ALPHA = 0.9                
 VAL_SPLIT = 0.20           
 BATCH_SIZE = 32
 LEARNING_RATE = 1e-4
-# !!! SUGGESTION: Add weight decay for regularization !!!
-WEIGHT_DECAY = 5e-4        # Original: Not explicitly set (AdamW has some). Try 1e-5, 1e-4, 1e-2.
-# --- End Configuration Section ---
+WEIGHT_DECAY = 5e-4        
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
@@ -52,30 +50,15 @@ print(f"Current Dropout: {DROPOUT}, Weight Decay: {WEIGHT_DECAY}")
 
 
 def load_all_features_and_labels(feature_dir_path):
-    """
-    Loads all features and labels from .npy files in the specified directory.
-    User's specific version for files named like:
-    train_features_saving_batch_<INDEX>.npy
-    train_labels_saving_batch_<INDEX>.npy
-    """
     all_features = []
     all_labels = []
     
-    if not os.path.isdir(feature_dir_path):
-        print(f"Error: Feature directory not found: {feature_dir_path}")
-        return None, None
-
     try:
-        # Extracts 'X' from 'train_features_saving_batch_X.npy'
         batch_indices = sorted(list(set(
             f.split("_")[4].split(".")[0] 
             for f in os.listdir(feature_dir_path)
             if f.startswith("train_features_saving_batch") and f.endswith(".npy")
         )))
-        if not batch_indices:
-            print(f"Error: No feature batch files found in {feature_dir_path} matching 'train_features_saving_batch_X.npy'.")
-            return None, None
-        print(f"Found feature batch indices: {batch_indices}")
     except Exception as e:
         print(f"Error discovering feature batches: {e}")
         return None, None
@@ -87,13 +70,6 @@ def load_all_features_and_labels(feature_dir_path):
         feature_path = os.path.join(feature_dir_path, feature_file)
         label_path = os.path.join(feature_dir_path, label_file)
 
-        if not os.path.exists(feature_path):
-            print(f"Warning: Feature file not found: {feature_path}. Skipping.")
-            continue
-        if not os.path.exists(label_path):
-            print(f"Warning: Label file not found: {label_path}. Skipping.")
-            continue
-            
         try:
             features = np.load(feature_path, allow_pickle=True)
             labels = np.load(label_path, allow_pickle=True)
@@ -103,17 +79,10 @@ def load_all_features_and_labels(feature_dir_path):
             print(f"Error loading batch {batch_idx}: {e}")
             continue
             
-    if not all_features or not all_labels:
-        print("No data loaded. Please check feature directory and file naming.")
-        return None, None
-        
     print(f"Loaded {len(all_features)} total sequences.")
     return all_features, all_labels
 
 def collate_sequences(batch):
-    """
-    Collate function to pad sequences in a batch and create padding masks.
-    """
     sequences = [item[0] for item in batch]
     frame_labels_list = [item[1] for item in batch]
     binary_labels_list = [item[2] for item in batch]
@@ -129,7 +98,6 @@ def collate_sequences(batch):
 
     return sequences_padded, frame_labels_padded, binary_labels_batch, padding_mask
 
-# --- Data Loading ---
 full_feature_dir = os.path.join(FEATURE_DIR_BASE, FEATURE_SUBDIR)
 print(f"Attempting to load data from: {full_feature_dir}")
 
@@ -151,17 +119,15 @@ print(f"Validation dataset size: {len(val_dataset)}")
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_sequences)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_sequences)
 
-# --- Model, Optimizer, Criterion ---
 model = ViTTransformer(
     feature_dim=VIT_FEATURE_DIM,
     model_dim=MODEL_DIM,
     nhead=N_HEADS,
     num_encoder_layers=NUM_ENCODER_LAYERS,
     dim_feedforward=DIM_FEEDFORWARD,
-    dropout=DROPOUT # Dropout rate is now a configurable hyperparameter
+    dropout=DROPOUT
 ).to(device)
 
-# Pass weight_decay to the optimizer
 optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY) 
 
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=5)
@@ -171,7 +137,6 @@ criterion_binary = nn.BCELoss()
 
 best_val_loss = float("inf")
 
-# --- Training Loop ---
 for epoch in range(EPOCHS):
     model.train()
     running_train_loss = 0.0
@@ -208,7 +173,6 @@ for epoch in range(EPOCHS):
 
     avg_train_loss = running_train_loss / total_train_sequences if total_train_sequences > 0 else 0
 
-    # --- Validation Loop ---
     model.eval()
     running_val_loss = 0.0
     total_val_sequences = 0
@@ -243,7 +207,6 @@ for epoch in range(EPOCHS):
 
     print(f"Epoch {epoch+1}/{EPOCHS} - Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
 
-    # Step the scheduler based on validation loss
     scheduler.step(avg_val_loss)
 
     if avg_val_loss < best_val_loss:
